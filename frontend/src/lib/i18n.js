@@ -250,7 +250,19 @@ const messages = {
 		'security.testRun': 'Test',
 		'security.testResult': 'Result',
 		'settings.aboutTitle': 'About FlashRoute',
-		'settings.aboutBody': 'A compact AI gateway and chat console. Provider keys, routes, stats and chats live in ~/.config/flashroute.'
+		'settings.aboutBody': 'A compact AI gateway and chat console. Provider keys, routes, stats and chats live in ~/.config/flashroute.',
+		'settings.updateTitle': 'Software update',
+		'settings.updateHint': 'Check GitHub releases and install the latest version from here.',
+		'settings.updateCheck': 'Check for updates',
+		'settings.updateChecking': 'Checking…',
+		'settings.updateAvailable': 'Update available',
+		'settings.updateUpToDate': 'You are running the latest version.',
+		'settings.updateDev': 'This is a development build, so automatic updates are disabled.',
+		'settings.updateInstall': 'Install & restart',
+		'settings.updateDownloading': 'Downloading…',
+		'settings.updateRestarting': 'Update installed. Restarting…',
+		'settings.updateRestartTimeout': 'The update was installed, but the restart did not finish. Restart FlashRoute manually.',
+		'settings.updateRelease': 'Release notes'
 	},
 	zh: {
 		'nav.chat': '聊天',
@@ -489,7 +501,19 @@ const messages = {
 		'security.testRun': '测试',
 		'security.testResult': '结果',
 		'settings.aboutTitle': '关于 FlashRoute',
-		'settings.aboutBody': '一个紧凑的 AI 网关和聊天控制台。供应商密钥、路由、统计和聊天记录都保存在 ~/.config/flashroute。'
+		'settings.aboutBody': '一个紧凑的 AI 网关和聊天控制台。供应商密钥、路由、统计和聊天记录都保存在 ~/.config/flashroute。',
+		'settings.updateTitle': '软件更新',
+		'settings.updateHint': '检查 GitHub Release，并从应用内直接安装最新版本。',
+		'settings.updateCheck': '检查更新',
+		'settings.updateChecking': '检查中…',
+		'settings.updateAvailable': '发现新版本',
+		'settings.updateUpToDate': '当前已是最新版本。',
+		'settings.updateDev': '当前是开发版本，无法自动更新。',
+		'settings.updateInstall': '安装并重启',
+		'settings.updateDownloading': '下载中…',
+		'settings.updateRestarting': '更新已安装，正在重启…',
+		'settings.updateRestartTimeout': '更新已安装，但重启未完成，请手动重启 FlashRoute。',
+		'settings.updateRelease': 'Release 说明'
 	}
 };
 

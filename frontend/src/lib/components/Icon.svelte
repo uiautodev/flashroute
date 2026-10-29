@@ -9,6 +9,7 @@
 	import CircleStop from '@lucide/svelte/icons/circle-stop';
 	import Clock from '@lucide/svelte/icons/clock';
 	import Copy from '@lucide/svelte/icons/copy';
+	import Download from '@lucide/svelte/icons/download';
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import Globe from '@lucide/svelte/icons/globe';
 	import ImageIcon from '@lucide/svelte/icons/image';
@@ -55,6 +56,7 @@
 		clock: Clock,
 		stop: CircleStop,
 		copy: Copy,
+		download: Download,
 		edit: Pencil,
 		external: ExternalLink,
 		globe: Globe,

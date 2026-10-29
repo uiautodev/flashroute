@@ -47,7 +47,7 @@ func main() {
 		DataDir:   st.Dir(),
 	})
 
-	ln, err := net.Listen("tcp", *listen)
+	ln, err := listenTCP(*listen)
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
@@ -82,6 +82,21 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = httpServer.Shutdown(ctx)
+}
+
+func listenTCP(addr string) (net.Listener, error) {
+	ln, err := net.Listen("tcp", addr)
+	if err == nil || os.Getenv("FLASHROUTE_RESTART") != "1" {
+		return ln, err
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(150 * time.Millisecond)
+		if ln, err = net.Listen("tcp", addr); err == nil {
+			return ln, nil
+		}
+	}
+	return nil, err
 }
 
 func displayAddr(addr string) string {

@@ -26,6 +26,7 @@ English | [简体中文](README.zh-CN.md)
 - **Access control**: localhost and desktop sessions need no password; remote access must set one. Use `-require-auth` behind a local reverse proxy.
 - **Single binary**: SvelteKit assets are embedded with `go:embed`.
 - **Desktop app**: optional Wails v3 shell reusing the same Go HTTP handler and frontend; macOS streaming is supported through the Wails v3 asset server.
+- **In-app updates**: check the latest GitHub release from Settings, verify the downloaded asset with `SHA256SUMS`, install it and restart automatically. macOS desktop builds update the app bundle and re-sign it ad hoc.
 
 ## Alternatives
 
@@ -167,6 +168,20 @@ X-FlashRoute-Provider
 X-FlashRoute-Model
 X-FlashRoute-Attempts
 ```
+
+## In-app updates
+
+Open **Settings → Software update** and click **Check for updates**. When a newer release exists, FlashRoute downloads the matching asset (server binary or macOS DMG), verifies it against the release's `SHA256SUMS`, replaces the running executable and restarts automatically. The restarted process serves the new version; macOS desktop builds also update the bundle metadata and re-sign the app ad hoc.
+
+To use a GitHub mirror or a local release API:
+
+```bash
+FLASHROUTE_UPDATE_API=https://api.github.com/repos/uiautodev/flashroute/releases/latest \
+FLASHROUTE_UPDATE_BASE_URL=https://mirror.example/flashroute/releases/download \
+./flashroute
+```
+
+`FLASHROUTE_UPDATE_API` returns the latest release JSON. `FLASHROUTE_UPDATE_BASE_URL` must expose assets at `v<version>/<asset-name>` and is also used for `SHA256SUMS`. Standard `HTTP_PROXY` / `HTTPS_PROXY` environment variables are respected.
 
 ## Project layout
 

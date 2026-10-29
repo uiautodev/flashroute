@@ -26,6 +26,7 @@
 - **访问控制**：localhost 和桌面版免密码；远程访问必须设置密码。反向代理场景可加 `-require-auth`。
 - **独立二进制**：SvelteKit 构建产物通过 `go:embed` 打包，单个 Go 二进制即可运行。
 - **桌面应用**：可选 Wails v3 桌面壳，复用同一套 Go HTTP handler 和前端；macOS 通过 Wails v3 asset server 支持流式输出。
+- **应用内更新**：在设置页检查最新 GitHub Release，使用 `SHA256SUMS` 校验下载产物，安装后自动重启。macOS 桌面版会更新应用包并重新进行 ad-hoc 签名。
 
 ## 同类项目 / Alternatives
 
@@ -168,6 +169,20 @@ X-FlashRoute-Provider
 X-FlashRoute-Model
 X-FlashRoute-Attempts
 ```
+
+## 应用内更新
+
+打开 **设置 → 软件更新**，点击「检查更新」。发现新版本后，FlashRoute 会下载对应产物（服务端二进制或 macOS DMG），使用 Release 中的 `SHA256SUMS` 校验，替换当前可执行文件并自动重启；重启后即为新版本。macOS 桌面版还会更新应用包信息并重新进行 ad-hoc 签名。
+
+如果使用 GitHub 镜像或本地 Release API：
+
+```bash
+FLASHROUTE_UPDATE_API=https://api.github.com/repos/uiautodev/flashroute/releases/latest \
+FLASHROUTE_UPDATE_BASE_URL=https://mirror.example/flashroute/releases/download \
+./flashroute
+```
+
+`FLASHROUTE_UPDATE_API` 返回最新 Release JSON；`FLASHROUTE_UPDATE_BASE_URL` 需要按 `v<version>/<asset-name>` 提供产物，`SHA256SUMS` 也从这个地址下载。标准 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量同样生效。
 
 ## 项目结构
 

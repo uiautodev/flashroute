@@ -12,6 +12,11 @@
 	let password = '';
 	let confirm = '';
 	let saving = false;
+	let checkingUpdate = false;
+	let updating = false;
+	let applied = false;
+	let update = null;
+	let updateError = '';
 
 	$: endpoint = typeof location !== 'undefined' ? location.origin + '/v1' : '/v1';
 
@@ -35,6 +40,53 @@
 		} finally {
 			saving = false;
 		}
+	}
+
+	async function checkForUpdate() {
+		checkingUpdate = true;
+		updateError = '';
+		applied = false;
+		try {
+			update = await api.get('/api/update/check');
+		} catch (err) {
+			update = null;
+			updateError = err.message;
+		} finally {
+			checkingUpdate = false;
+		}
+	}
+
+	async function installUpdate() {
+		if (!update?.available || updating) return;
+		updating = true;
+		updateError = '';
+		try {
+			await api.post('/api/update/apply', {});
+			update = null;
+			applied = true;
+			toast($t('settings.updateRestarting'), 'success');
+			await waitForRestart();
+		} catch (err) {
+			updateError = err.message;
+			applied = false;
+		} finally {
+			updating = false;
+		}
+	}
+
+	async function waitForRestart() {
+		await new Promise((resolve) => setTimeout(resolve, 1500));
+		for (let attempt = 0; attempt < 60; attempt++) {
+			try {
+				await api.get('/api/auth/status');
+				location.reload();
+				return;
+			} catch {
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+			}
+		}
+		applied = false;
+		updateError = $t('settings.updateRestartTimeout');
 	}
 </script>
 
@@ -153,6 +205,58 @@
 			</div>
 		</div>
 	</section>
+
+	<section class="card card-pad update-card">
+		<div class="section-head">
+			<div class="section-icon"><Icon name="refresh" size={17} /></div>
+			<div>
+				<h2>{$t('settings.updateTitle')}</h2>
+				<p>{$t('settings.updateHint')}</p>
+			</div>
+		</div>
+		<div class="divider"></div>
+		<div class="update-row">
+			<div class="update-versions">
+				<span class="badge">v{status.version}</span>
+				{#if update?.available && update.latest}
+					<span class="update-arrow" aria-hidden="true">→</span>
+					<span class="badge badge-ok">v{update.latest}</span>
+				{/if}
+			</div>
+			<button class="btn btn-sm" onclick={checkForUpdate} disabled={checkingUpdate || updating || applied}>
+				{#if checkingUpdate}<span class="spinner"></span>{:else}<Icon name="refresh" size={13} />{/if}
+				{checkingUpdate ? $t('settings.updateChecking') : $t('settings.updateCheck')}
+			</button>
+		</div>
+		{#if updateError}
+			<p class="update-error">{updateError}</p>
+		{/if}
+		{#if applied}
+			<p class="update-restarting"><span class="spinner"></span>{$t('settings.updateRestarting')}</p>
+		{:else if update}
+			{#if update.available}
+				<div class="update-available">
+					<span class="badge badge-warn">{$t('settings.updateAvailable')}</span>
+					{#if update.notes}
+						<pre class="release-notes">{update.notes}</pre>
+					{/if}
+					<div class="update-actions">
+						<button class="btn btn-primary" onclick={installUpdate} disabled={updating}>
+							{#if updating}<span class="spinner"></span>{:else}<Icon name="download" size={14} />{/if}
+							{updating ? $t('settings.updateDownloading') : $t('settings.updateInstall')}
+						</button>
+						{#if update.release_url}
+							<a class="btn btn-ghost btn-sm" href={update.release_url} target="_blank" rel="noreferrer">
+								<Icon name="external" size={13} />{$t('settings.updateRelease')}
+							</a>
+						{/if}
+					</div>
+				</div>
+			{:else}
+				<p class="hint">{update.dev ? $t('settings.updateDev') : $t('settings.updateUpToDate')}</p>
+			{/if}
+		{/if}
+	</section>
 </div>
 
 <style>
@@ -227,6 +331,69 @@
 	}
 	.about-card {
 		grid-column: 1 / -1;
+	}
+	.update-card {
+		grid-column: 1 / -1;
+	}
+	.update-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		flex-wrap: wrap;
+	}
+	.update-versions {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.update-arrow {
+		color: var(--muted);
+		font-size: 12px;
+	}
+	.update-available {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		margin-top: 14px;
+		align-items: flex-start;
+	}
+	.update-actions {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+	.release-notes {
+		width: 100%;
+		max-height: 220px;
+		overflow: auto;
+		margin: 0;
+		padding: 12px 14px;
+		border: 1px solid var(--line-soft);
+		border-radius: 9px;
+		background: var(--surface-inset);
+		color: var(--text-soft);
+		font-family: inherit;
+		font-size: 11.5px;
+		line-height: 1.6;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.update-error {
+		margin-top: 12px;
+		font-size: 11.5px;
+		line-height: 1.5;
+		color: var(--danger-text);
+		overflow-wrap: anywhere;
+	}
+	.update-restarting {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-top: 14px;
+		font-size: 12px;
+		color: var(--muted);
 	}
 	.appearance-card {
 		grid-column: 1 / -1;

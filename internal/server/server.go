@@ -8,9 +8,11 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/uiautodev/flashroute/internal/gateway"
 	"github.com/uiautodev/flashroute/internal/store"
+	"github.com/uiautodev/flashroute/internal/update"
 )
 
 type Options struct {
@@ -19,16 +21,21 @@ type Options struct {
 	Version   string
 	Commit    string
 	DataDir   string
+	Updater   *update.Client
 }
 
 type Server struct {
-	store *store.Store
-	gw    *gateway.Gateway
-	opts  Options
-	mux   *http.ServeMux
+	store    *store.Store
+	gw       *gateway.Gateway
+	opts     Options
+	mux      *http.ServeMux
+	updateMu sync.Mutex
 }
 
 func New(st *store.Store, gw *gateway.Gateway, opts Options) *Server {
+	if opts.Updater == nil {
+		opts.Updater = update.New(update.Options{DataDir: opts.DataDir, Desktop: opts.Desktop})
+	}
 	s := &Server{store: st, gw: gw, opts: opts, mux: http.NewServeMux()}
 	s.routes()
 	return s
@@ -76,6 +83,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/chats/{id}", s.admin(s.handleDeleteChat))
 	s.mux.HandleFunc("POST /api/chat", s.admin(s.handleSendChat))
 	s.mux.HandleFunc("GET /api/uploads/{name}", s.admin(s.handleUpload))
+
+	s.mux.HandleFunc("GET /api/update/check", s.admin(s.handleUpdateCheck))
+	s.mux.HandleFunc("POST /api/update/apply", s.admin(s.handleUpdateApply))
 
 	s.mux.HandleFunc("OPTIONS /v1/", s.handleOptions)
 	s.mux.HandleFunc("GET /v1/models", s.gatewayAuth(s.handleGatewayModels))
