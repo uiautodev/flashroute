@@ -1,8 +1,9 @@
-VERSION ?= 1.0.0
+VERSION ?= $(shell v=$$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//'); echo "$${v:-dev}")
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 GOTOOLCHAIN ?= auto
 export GOTOOLCHAIN
 BIN := bin/flashroute
-LDFLAGS := -s -w -X main.version=$(VERSION)
+LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
 .PHONY: all frontend build dev run test desktop clean
 
@@ -25,7 +26,7 @@ test: frontend
 	go test ./...
 
 desktop:
-	cd desktop && wails build -clean -ldflags "-X main.version=$(VERSION)"
+	cd desktop && wails build -clean -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT)"
 
 clean:
 	rm -rf bin frontend/.svelte-kit desktop/build/bin

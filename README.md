@@ -126,6 +126,14 @@ Provider API keys are stored in plain text in `config.yaml` and masked by defaul
 
 ## Using the gateway
 
+Run it directly from npm:
+
+```bash
+npx flashroute
+```
+
+The npm wrapper downloads the matching release binary, verifies its SHA-256 checksum and forwards all flags. `flashroute -version` prints the version and git commit.
+
 Create or copy an `sk-fr-` key on the **API Keys** page, then:
 
 ```bash
@@ -178,6 +186,17 @@ go test ./...
 ```
 
 The UI is tested in a real browser with Playwright, covering provider setup, model sync and tests, proxy tests, 429 fallback, Markdown chat, message editing and version switching, images, privacy mode, API key copying, themes, language switching and remote-password flows.
+
+## Release
+
+Push a semver tag to trigger the release workflow:
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+GitHub Actions builds the frontend and cross-compiles the server binaries, uploads them with a `SHA256SUMS` file to the GitHub Release, and publishes the matching npm package when the `NPM_TOKEN` repository secret is configured. Binary versions use the tag without the leading `v`, and the commit hash is embedded into the binary and shown on the Settings page.
 
 ## License
 

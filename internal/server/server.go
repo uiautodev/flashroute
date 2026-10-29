@@ -17,6 +17,7 @@ type Options struct {
 	Desktop   bool
 	ForceAuth bool
 	Version   string
+	Commit    string
 	DataDir   string
 }
 

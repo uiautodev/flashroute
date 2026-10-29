@@ -22,6 +22,7 @@ type authStatus struct {
 	Configured    bool   `json:"configured"`
 	Authenticated bool   `json:"authenticated"`
 	Version       string `json:"version"`
+	Commit        string `json:"commit"`
 	DataDir       string `json:"data_dir"`
 }
 
@@ -41,6 +42,7 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 		Configured:    s.store.PasswordHash() != "",
 		Authenticated: (local && !s.opts.ForceAuth) || s.authenticated(r),
 		Version:       s.opts.Version,
+		Commit:        s.opts.Commit,
 		DataDir:       s.opts.DataDir,
 	})
 }

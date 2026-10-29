@@ -90,7 +90,14 @@
 		<div class="divider"></div>
 		<dl class="kv">
 			<dt>{$t('settings.version')}</dt>
-			<dd class="mono">v{status.version}</dd>
+			<dd class="mono">
+				v{status.version}
+				{#if status.commit && status.commit !== 'unknown'}
+					<a class="commit-link" href={`https://github.com/uiautodev/flashroute/commit/${status.commit}`} target="_blank" rel="noreferrer">
+						{status.commit.slice(0, 7)}
+					</a>
+				{/if}
+			</dd>
 			<dt>{$t('settings.mode')}</dt>
 			<dd>{status.desktop ? $t('settings.desktop') : $t('settings.server')}</dd>
 			<dt>{$t('settings.dataDir')}</dt>
@@ -149,6 +156,14 @@
 </div>
 
 <style>
+	.commit-link {
+		margin-left: 6px;
+		color: var(--accent);
+		text-decoration: none;
+	}
+	.commit-link:hover {
+		text-decoration: underline;
+	}
 	.settings-grid {
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -248,7 +263,7 @@
 		color: var(--accent);
 	}
 	@media (max-width: 900px) {
-		.settings-grid {
+	.settings-grid {
 			grid-template-columns: 1fr;
 		}
 		.password-form {

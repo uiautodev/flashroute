@@ -12,7 +12,10 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 )
 
-var version = "1.0.0"
+var (
+	version = "dev"
+	commit  = "unknown"
+)
 
 func main() {
 	st, err := store.New(store.DefaultDir())
@@ -22,6 +25,7 @@ func main() {
 	srv := server.New(st, gateway.New(st), server.Options{
 		Desktop: true,
 		Version: version,
+		Commit:  commit,
 		DataDir: st.Dir(),
 	})
 

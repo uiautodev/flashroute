@@ -19,7 +19,10 @@ import (
 	"github.com/uiautodev/flashroute/internal/store"
 )
 
-var version = "1.0.0"
+var (
+	version = "dev"
+	commit  = "unknown"
+)
 
 func main() {
 	listen := flag.String("listen", ":8080", "address to listen on")
@@ -28,7 +31,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *showVersion {
-		fmt.Println(version)
+		fmt.Printf("FlashRoute %s (%s)\n", version, commit)
 		return
 	}
 
@@ -40,6 +43,7 @@ func main() {
 	srv := server.New(st, gw, server.Options{
 		ForceAuth: *forceAuth,
 		Version:   version,
+		Commit:    commit,
 		DataDir:   st.Dir(),
 	})
 
@@ -53,7 +57,7 @@ func main() {
 		IdleTimeout:       2 * time.Minute,
 	}
 	url := "http://" + displayAddr(ln.Addr().String())
-	log.Printf("FlashRoute %s", version)
+	log.Printf("FlashRoute %s (%s)", version, commit)
 	log.Printf("data: %s", st.Dir())
 	log.Printf("open: %s", url)
 	log.Printf("gateway: %s/v1  (API key required)", strings.TrimRight(url, "/"))

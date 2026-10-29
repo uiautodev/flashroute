@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+          registry-url: https://registry.npmjs.org
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Build release binaries
+        env:
+          VERSION: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION#v}"
+          COMMIT="${COMMIT:0:12}"
+          mkdir -p dist
+          build() {
+            local goos="$1" goarch="$2" name="$3" ext="${4:-}"
+            GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED=0 go build -trimpath \
+              -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
+              -o "dist/flashroute-server-${name}-${VERSION}${ext}" ./cmd/flashroute
+          }
+          build darwin amd64 darwin-x86_64
+          build darwin arm64 darwin-arm64
+          build linux amd64 linux-x86_64
+          build linux arm64 linux-arm64
+          build windows amd64 windows-amd64 .exe
+          (cd dist && sha256sum * > SHA256SUMS)
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          name: ${{ github.ref_name }}
+      - name: Publish npm package
+        if: env.NPM_TOKEN != ''
+        env:
+          VERSION: ${{ github.ref_name }}
+          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
+        run: node scripts/publish-npm.mjs "${VERSION}"

@@ -126,6 +126,14 @@ make desktop
 
 ## 使用网关
 
+也可以直接通过 npm 运行：
+
+```bash
+npx flashroute
+```
+
+npm 包装脚本会下载对应平台的最新 release 二进制，校验 SHA-256 后透传所有参数。`flashroute -version` 会显示版本号和 git commit。
+
 在 **API Keys** 页面创建或复制一个 `sk-fr-` Key，然后：
 
 ```bash
@@ -178,6 +186,17 @@ go test ./...
 ```
 
 UI 使用 Playwright 做过实际浏览器测试，覆盖供应商接入、模型同步与测试、代理测试、429 回退、Markdown 聊天、消息编辑与版本切换、图片、隐私模式、API Key 复制、主题、中英文切换及远程密码流程。
+
+## 发布
+
+推送 semver tag 会触发发布流程：
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+GitHub Actions 会构建前端、交叉编译服务端二进制，连同 `SHA256SUMS` 一起上传到 GitHub Release；配置 `NPM_TOKEN` 仓库密钥后，还会发布同版本的 npm 包。二进制版本号使用去掉前导 `v` 的 tag，commit hash 会注入二进制并显示在设置页。
 
 ## License
 

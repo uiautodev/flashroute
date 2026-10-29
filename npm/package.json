@@ -1,0 +1,25 @@
+{
+  "name": "flashroute",
+  "version": "0.0.0",
+  "description": "Run the FlashRoute AI gateway with npx flashroute.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/uiautodev/flashroute.git"
+  },
+  "homepage": "https://github.com/uiautodev/flashroute",
+  "bugs": {
+    "url": "https://github.com/uiautodev/flashroute/issues"
+  },
+  "bin": {
+    "flashroute": "bin/flashroute.js"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}
