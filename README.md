@@ -4,6 +4,8 @@ A compact AI gateway and chat console built with Go and SvelteKit. It aggregates
 
 English | [简体中文](README.zh-CN.md)
 
+![FlashRoute home](docs/home.png)
+
 ## Features
 
 - **Multi-provider aggregation**: DeepSeek, OpenRouter, BigModel, Anthropic and custom OpenAI-compatible endpoints.

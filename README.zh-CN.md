@@ -4,6 +4,8 @@
 
 [English](README.md) | 简体中文
 
+![FlashRoute home](docs/home.png)
+
 ## 特性
 
 - **多供应商聚合**：DeepSeek、OpenRouter、BigModel、Anthropic 和自定义 OpenAI 兼容接口。
