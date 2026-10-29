@@ -25,7 +25,7 @@ English | [简体中文](README.zh-CN.md)
 - **Languages and themes**: Chinese / English, dark / light / follow system.
 - **Access control**: localhost and desktop sessions need no password; remote access must set one. Use `-require-auth` behind a local reverse proxy.
 - **Single binary**: SvelteKit assets are embedded with `go:embed`.
-- **Desktop app**: optional Wails v2 shell reusing the same Go HTTP handler and frontend.
+- **Desktop app**: optional Wails v3 shell reusing the same Go HTTP handler and frontend; macOS streaming is supported through the Wails v3 asset server.
 
 ## Alternatives
 
@@ -44,7 +44,7 @@ FlashRoute focuses on a lightweight, single-binary, self-hosted gateway with a b
 
 ## Development
 
-The server requires Go 1.27.3+ and Node.js 22.17+. The optional desktop module uses [Wails v2](https://wails.io/).
+The server requires Go 1.27.3+ and Node.js 22.17+. The optional desktop module uses [Wails v3](https://wails.io/).
 
 ```bash
 # Build the frontend and the single server binary
@@ -172,7 +172,7 @@ X-FlashRoute-Attempts
 
 ```text
 cmd/flashroute/        server entry point
-desktop/               optional Wails desktop entry (separate Go module)
+desktop/               optional Wails v3 desktop entry (separate Go module)
 frontend/              SvelteKit frontend; build/ is embedded with go:embed
 internal/config/       config data structures
 internal/store/        config, stats and chat persistence

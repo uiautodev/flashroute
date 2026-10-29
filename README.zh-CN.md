@@ -25,7 +25,7 @@
 - **多语言与主题**：中文 / English，暗黑 / 亮色 / 跟随系统。
 - **访问控制**：localhost 和桌面版免密码；远程访问必须设置密码。反向代理场景可加 `-require-auth`。
 - **独立二进制**：SvelteKit 构建产物通过 `go:embed` 打包，单个 Go 二进制即可运行。
-- **桌面应用**：可选 Wails v2 桌面壳，复用同一套 Go HTTP handler 和前端。
+- **桌面应用**：可选 Wails v3 桌面壳，复用同一套 Go HTTP handler 和前端；macOS 通过 Wails v3 asset server 支持流式输出。
 
 ## 同类项目 / Alternatives
 
@@ -44,7 +44,7 @@ FlashRoute 更偏向「单二进制、自带聊天界面、轻量自托管」；
 
 ## 开发与构建
 
-服务端需要 Go 1.27.3+、Node.js 22.17+。桌面模块使用 [Wails v2](https://wails.io/)。
+服务端需要 Go 1.27.3+、Node.js 22.17+。桌面模块使用 [Wails v3](https://wails.io/)。
 
 ```bash
 # 构建前端 + 单个服务端二进制
@@ -106,13 +106,14 @@ FLASHROUTE_DATA_DIR=/path/to/data ./bin/flashroute
 
 ### 桌面版（Wails）
 
+在 macOS 上构建 universal App：
+
 ```bash
-make frontend
 make desktop
-# 产物：desktop/build/bin/flashroute.app
+# 产物：desktop/build/bin/FlashRoute.app
 ```
 
-`make desktop` 会执行 `wails build`。Wails 使用内嵌前端和同一个 Go HTTP handler；桌面会话始终免密码。
+桌面版使用 Wails v3，需要 macOS 和 Xcode 命令行工具。桌面壳使用同一套内嵌前端和 Go HTTP handler，桌面会话始终免密码，macOS 上聊天支持流式输出。
 
 ## 数据目录
 
@@ -172,7 +173,7 @@ X-FlashRoute-Attempts
 
 ```text
 cmd/flashroute/        服务端入口
-desktop/               Wails 桌面入口（独立 Go module）
+desktop/               Wails v3 桌面入口（独立 Go module）
 frontend/              SvelteKit 前端，build/ 通过 go:embed 打包
 internal/config/       配置数据结构
 internal/store/        配置、统计、聊天持久化

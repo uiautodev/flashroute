@@ -6,10 +6,7 @@ import (
 	"github.com/uiautodev/flashroute/internal/gateway"
 	"github.com/uiautodev/flashroute/internal/server"
 	"github.com/uiautodev/flashroute/internal/store"
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	"github.com/wailsapp/wails/v2/pkg/options/mac"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 var (
@@ -29,25 +26,28 @@ func main() {
 		DataDir: st.Dir(),
 	})
 
-	err = wails.Run(&options.App{
-		Title:     "FlashRoute",
-		Width:     1280,
-		Height:    840,
-		MinWidth:  920,
-		MinHeight: 620,
-		AssetServer: &assetserver.Options{
+	app := application.New(application.Options{
+		Name:        "FlashRoute",
+		Description: "AI model router and chat console",
+		Assets: application.AssetOptions{
 			Handler: srv.Handler(),
 		},
-		BackgroundColour: &options.RGBA{R: 7, G: 11, B: 16, A: 1},
-		Mac: &mac.Options{
-			TitleBar: mac.TitleBarDefault(),
-			About: &mac.AboutInfo{
-				Title:   "FlashRoute",
-				Message: "AI model router and chat console",
-			},
+		Mac: application.MacOptions{
+			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 	})
-	if err != nil {
+
+	app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:            "FlashRoute",
+		Width:            1280,
+		Height:           840,
+		MinWidth:         920,
+		MinHeight:        620,
+		BackgroundColour: application.NewRGB(7, 11, 16),
+		URL:              "/",
+	})
+
+	if err := app.Run(); err != nil {
 		log.Fatalf("run desktop app: %v", err)
 	}
 }

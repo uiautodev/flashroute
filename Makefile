@@ -26,7 +26,7 @@ test: frontend
 	go test ./...
 
 desktop:
-	cd desktop && wails build -clean -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT)"
+	VERSION=$(VERSION) COMMIT=$(COMMIT) ./scripts/build-macos-app.sh
 
 clean:
 	rm -rf bin frontend/.svelte-kit desktop/build/bin

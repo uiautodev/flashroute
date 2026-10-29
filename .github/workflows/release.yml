@@ -30,8 +30,6 @@ jobs:
         run: |
           npm ci
           npm run build
-      - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.14.0
       - name: Build release binaries
         env:
           VERSION: ${{ github.ref_name }}
@@ -60,12 +58,10 @@ jobs:
           set -euo pipefail
           VERSION="${VERSION#v}"
           COMMIT="${COMMIT:0:12}"
-          cd desktop
-          wails build -clean -platform darwin/universal \
-            -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT}"
-          cd ..
+          app="${RUNNER_TEMP}/FlashRoute.app"
+          APP_OUT="${app}" VERSION="${VERSION}" COMMIT="${COMMIT}" ./scripts/build-macos-app.sh
           stage="$(mktemp -d)"
-          cp -R desktop/build/bin/flashroute.app "${stage}/"
+          cp -R "${app}" "${stage}/"
           ln -s /Applications "${stage}/Applications"
           hdiutil create -volname "FlashRoute" -srcfolder "${stage}" -ov -format UDZO \
             "dist/FlashRoute-desktop-mac-${VERSION}.dmg"

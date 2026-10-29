@@ -114,6 +114,17 @@
 		}
 	}
 
+	async function streamChat(payload, assistantID) {
+		try {
+			await api.stream('/api/chat', payload, (event, data) => handleStreamEvent(assistantID, event, data));
+		} catch (err) {
+			if (!/streaming is not supported/i.test(err.message || '')) throw err;
+			const data = await api.post('/api/chat', { ...payload, stream: false });
+			messages = data.chat.messages || [];
+			if (!privacy) current = data.chat;
+		}
+	}
+
 	async function send() {
 		error = '';
 		if (!model) {
@@ -152,8 +163,7 @@
 		sending = true;
 		await scrollBottom();
 		try {
-			await api.stream(
-				'/api/chat',
+			await streamChat(
 				{
 					chat_id: privacy ? '' : current?.id || '',
 					model,
@@ -163,7 +173,7 @@
 					stream: true,
 					history
 				},
-				(event, data) => handleStreamEvent(assistantID, event, data)
+				assistantID
 			);
 			if (!privacy) await refreshChats();
 			await scrollBottom();
@@ -216,8 +226,7 @@
 		error = '';
 		await scrollBottom();
 		try {
-			await api.stream(
-				'/api/chat',
+			await streamChat(
 				{
 					chat_id: privacy ? '' : current?.id || '',
 					model,
@@ -228,7 +237,7 @@
 					edit_message_id: message.id,
 					history
 				},
-				(event, data) => handleStreamEvent(assistantID, event, data)
+				assistantID
 			);
 			editingText = '';
 			if (!privacy) await refreshChats();
@@ -262,8 +271,7 @@
 		error = '';
 		await scrollBottom();
 		try {
-			await api.stream(
-				'/api/chat',
+			await streamChat(
 				{
 					chat_id: current.id,
 					model,
@@ -272,7 +280,7 @@
 					stream: true,
 					history: []
 				},
-				(event, data) => handleStreamEvent(assistantID, event, data)
+				assistantID
 			);
 			await refreshChats();
 			await scrollBottom();

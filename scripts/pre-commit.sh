@@ -13,6 +13,7 @@ if [[ -n "${unformatted}" ]]; then
 	exit 1
 fi
 
+bash -n scripts/dev.sh scripts/pre-commit.sh scripts/build-macos-app.sh
 node --check npm/bin/flashroute.js
 node --check scripts/publish-npm.mjs
 
