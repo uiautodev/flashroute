@@ -4,6 +4,7 @@
 	import { lang, t, toggleLang } from '#lib/i18n.js';
 	import { cycleTheme, themeMode } from '#lib/theme.js';
 	import Icon from '#lib/components/Icon.svelte';
+	import GithubIcon from '#lib/components/GithubIcon.svelte';
 	import AuthScreen from '#lib/components/AuthScreen.svelte';
 	import ToastStack from '#lib/components/ToastStack.svelte';
 	import ChatView from '#lib/components/ChatView.svelte';
@@ -132,6 +133,17 @@
 					</div>
 				</div>
 				<div class="topbar-actions">
+					<a
+						class="btn btn-ghost btn-icon"
+						href="https://github.com/uiautodev/flashroute"
+						target="_blank"
+						rel="noreferrer"
+						title="GitHub"
+						aria-label="GitHub"
+						style="text-decoration:none"
+					>
+						<GithubIcon size={16} />
+					</a>
 					<button
 						class="btn btn-ghost btn-icon"
 						onclick={cycleTheme}
