@@ -28,8 +28,6 @@
 	let form = blankForm();
 	let modelText = '';
 	let availableModels = [];
-	let testingModel = '';
-	let expanded = {};
 	let viewMode = 'cards';
 	let modelTab = 'list';
 
@@ -194,10 +192,6 @@
 		}
 	}
 
-	async function refreshModels(provider) {
-		openEdit(provider);
-		await syncModels();
-	}
 
 	function buildModelCatalog(available, selected) {
 		const seen = new Set();
@@ -247,9 +241,6 @@
 		return selectedIDs.includes(model.id) ? 'selected' : 'idle';
 	}
 
-	function toggleExpand(id) {
-		expanded = { ...expanded, [id]: !expanded[id] };
-	}
 
 	function maskKey(value) {
 		const key = String(value || '');
@@ -411,57 +402,6 @@
 					{/if}
 				</div>
 
-				<div class="models-head">
-					<div class="row" style="gap:8px">
-						<span class="detail-label">{$t('providers.models')}</span>
-						<span class="badge">{(provider.models || []).length}</span>
-						{#if (provider.models || []).length}
-							<button class="btn btn-ghost btn-icon btn-sm" onclick={() => toggleExpand(provider.id)} title={expanded[provider.id] ? $t('common.close') : $t('common.models')}>
-								<Icon name={expanded[provider.id] ? 'chevron-up' : 'chevron-down'} size={14} />
-							</button>
-						{/if}
-					</div>
-					<button class="btn btn-sm" onclick={() => refreshModels(provider)}>
-						<Icon name="refresh" size={13} />
-						{$t('providers.refreshModels')}
-					</button>
-				</div>
-
-				{#if (provider.models || []).length}
-					<div class="model-list" class:expanded={expanded[provider.id]}>
-						{#each expanded[provider.id] ? provider.models : provider.models.slice(0, 4) as model (model.id)}
-							<div class="model-row">
-								<div class="model-name">
-									<span class="mono model-id">{model.id}</span>
-									{#if model.name && model.name !== model.id}<span class="model-label">{model.name}</span>{/if}
-									{#if model.last_test}
-										<span class="badge {model.last_test.ok ? 'badge-ok' : 'badge-bad'}">
-											{model.last_test.ok ? $t('providers.testOk', { output: model.last_test.output, ms: model.last_test.latency_ms }) : $t('providers.testBad')}
-										</span>
-										{#if !model.last_test.ok && model.last_test.error}
-											<span class="model-test-error">{model.last_test.error}</span>
-										{/if}
-									{/if}
-								</div>
-								<button
-									class="btn btn-sm"
-									onclick={() => testModel(provider, model)}
-									disabled={testingModel === provider.id + '/' + model.id}
-								>
-									{#if testingModel === provider.id + '/' + model.id}<span class="spinner"></span>{:else}<Icon name="zap" size={12} />{/if}
-									{$t('providers.testModel')}
-								</button>
-							</div>
-						{/each}
-						{#if (provider.models || []).length > 4 && !expanded[provider.id]}
-							<button class="more-models" onclick={() => toggleExpand(provider.id)}>
-								+{provider.models.length - 4} {$t('common.models')}
-							</button>
-						{/if}
-					</div>
-				{:else}
-					<div class="no-models">{$t('providers.fetchFirst')}</div>
-				{/if}
 			</article>
 		{/each}
 	</div>
@@ -793,71 +733,6 @@
 		padding: 4px 7px;
 		overflow-wrap: anywhere;
 		flex: 1;
-	}
-	.models-head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 10px;
-	}
-	.model-list {
-		display: flex;
-		flex-direction: column;
-		border: 1px solid var(--line-soft);
-		border-radius: 9px;
-		overflow: hidden;
-	}
-	.model-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 10px;
-		padding: 7px 9px;
-		border-bottom: 1px solid var(--line-soft);
-	}
-	.model-row:last-child {
-		border-bottom: 0;
-	}
-	.model-name {
-		display: flex;
-		align-items: center;
-		gap: 7px;
-		min-width: 0;
-		flex-wrap: wrap;
-	}
-	.model-id {
-		font-size: 10.5px;
-		color: var(--text-soft);
-		overflow-wrap: anywhere;
-	}
-	.model-label {
-		font-size: 10px;
-		color: var(--muted);
-	}
-	.model-test-error {
-		width: 100%;
-		font-size: 10px;
-		line-height: 1.4;
-		color: var(--danger-text);
-		overflow-wrap: anywhere;
-	}
-	.more-models {
-		border: 0;
-		background: var(--badge-bg);
-		color: var(--muted);
-		font-size: 10.5px;
-		padding: 8px;
-	}
-	.more-models:hover {
-		color: var(--accent);
-		background: var(--accent-soft);
-	}
-	.no-models {
-		font-size: 11px;
-		color: var(--muted);
-		padding: 9px 11px;
-		border: 1px dashed var(--line);
-		border-radius: 8px;
 	}
 	.preset-row {
 		display: flex;

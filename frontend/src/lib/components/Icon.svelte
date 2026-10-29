@@ -6,6 +6,7 @@
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import ChevronUp from '@lucide/svelte/icons/chevron-up';
+	import CircleStop from '@lucide/svelte/icons/circle-stop';
 	import Clock from '@lucide/svelte/icons/clock';
 	import Copy from '@lucide/svelte/icons/copy';
 	import ExternalLink from '@lucide/svelte/icons/external-link';
@@ -16,6 +17,8 @@
 	import KeyRound from '@lucide/svelte/icons/key-round';
 	import Lock from '@lucide/svelte/icons/lock';
 	import LogOut from '@lucide/svelte/icons/log-out';
+	import Maximize from '@lucide/svelte/icons/maximize';
+	import Minimize from '@lucide/svelte/icons/minimize';
 	import Menu from '@lucide/svelte/icons/menu';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import Monitor from '@lucide/svelte/icons/monitor';
@@ -50,6 +53,7 @@
 		'chevron-right': ChevronRight,
 		'chevron-up': ChevronUp,
 		clock: Clock,
+		stop: CircleStop,
 		copy: Copy,
 		edit: Pencil,
 		external: ExternalLink,
@@ -60,6 +64,8 @@
 		key: KeyRound,
 		lock: Lock,
 		logout: LogOut,
+		maximize: Maximize,
+		minimize: Minimize,
 		menu: Menu,
 		monitor: Monitor,
 		moon: Moon,

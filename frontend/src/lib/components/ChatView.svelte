@@ -26,6 +26,9 @@
 	let editingText = '';
 	let savingEdit = false;
 	let switchingVersion = false;
+	let fullscreen = false;
+	let activeRun = null;
+	let runSeq = 0;
 	let streamingMessageID = '';
 	let streamFrame = 0;
 	let editBox;
@@ -38,7 +41,9 @@
 	$: routes = available.routes || [];
 	$: direct = available.direct || [];
 	$: hasModels = routes.length > 0 || direct.length > 0;
-	$: canSend = model && (text.trim() || attachments.length > 0) && !sending && !savingEdit && !editingID && !streamingMessageID;
+	$: canSend = model && (text.trim() || attachments.length > 0) && !editingID;
+
+	onMount(() => () => document.documentElement.classList.remove('chat-fullscreen'));
 
 	onMount(async () => {
 		model = localStorage.getItem('flashroute.model') || '';
@@ -114,12 +119,49 @@
 		}
 	}
 
-	async function streamChat(payload, assistantID) {
+	function startRun(snapshot, input, images) {
+		const id = ++runSeq;
+		const controller = new AbortController();
+		const run = { id, controller, snapshot, input, images };
+		activeRun = run;
+		return run;
+	}
+
+	function interrupt({ restoreInput = false } = {}) {
+		const run = activeRun;
+		if (!run) return;
+		run.controller.abort();
+		if (run.id !== runSeq) return;
+		runSeq++;
+		activeRun = null;
+		messages = run.snapshot;
+		if (restoreInput && run.input !== null && !text.trim() && attachments.length === 0) {
+			text = run.input;
+			attachments = run.images.map((url, index) => ({ name: `image-${index + 1}`, dataUrl: url }));
+		}
+		sending = false;
+		savingEdit = false;
+		editingID = '';
+		streamingMessageID = '';
+		error = '';
+		scrollBottom();
+	}
+
+	function stopGeneration() {
+		interrupt({ restoreInput: true });
+	}
+
+	async function streamChat(payload, assistantID, signal) {
 		try {
-			await api.stream('/api/chat', payload, (event, data) => handleStreamEvent(assistantID, event, data));
+			await api.stream(
+				'/api/chat',
+				payload,
+				(event, data) => handleStreamEvent(assistantID, event, data),
+				{ signal }
+			);
 		} catch (err) {
 			if (!/streaming is not supported/i.test(err.message || '')) throw err;
-			const data = await api.post('/api/chat', { ...payload, stream: false });
+			const data = await api.post('/api/chat', { ...payload, stream: false }, { signal });
 			messages = data.chat.messages || [];
 			if (!privacy) current = data.chat;
 		}
@@ -135,9 +177,11 @@
 			error = $t('chat.errorNoMessage');
 			return;
 		}
+		if (activeRun) interrupt({ restoreInput: false });
 		const outgoingText = text.trim();
 		const outgoingImages = attachments.map((item) => item.dataUrl);
 		const previousMessages = messages;
+		const run = startRun(previousMessages, outgoingText, outgoingImages);
 		const history = messages
 			.filter((m) => m.role === 'user' || m.role === 'assistant')
 			.map((m) => ({ id: m.id, role: m.role, content: m.content, images: m.images || [], created_at: m.created_at }));
@@ -173,21 +217,26 @@
 					stream: true,
 					history
 				},
-				assistantID
+				assistantID,
+				run.controller.signal
 			);
 			if (!privacy) await refreshChats();
 			await scrollBottom();
 		} catch (err) {
+			if (run.id !== runSeq || run.controller.signal.aborted) return;
 			messages = previousMessages;
 			text = outgoingText;
 			attachments = outgoingImages.map((url, index) => ({ name: `image-${index + 1}`, dataUrl: url }));
 			error = err.message;
 			toast(err.message, 'error');
 		} finally {
-			sending = false;
-			streamingMessageID = '';
-			await scrollBottom();
-			textarea?.focus();
+			if (run.id === runSeq) {
+				activeRun = null;
+				sending = false;
+				streamingMessageID = '';
+				await scrollBottom();
+				textarea?.focus();
+			}
 		}
 	}
 
@@ -209,7 +258,9 @@
 		const nextText = regenerate ? message.content : editingText.trim();
 		const index = messages.findIndex((item) => item.id === message.id);
 		if (index < 0) return;
+		if (activeRun) interrupt({ restoreInput: false });
 		const previousMessages = messages;
+		const run = startRun(previousMessages, null, []);
 		const history = privacy
 			? messages.map((m) => ({ id: m.id, role: m.role, content: m.content, images: m.images || [], created_at: m.created_at }))
 			: [];
@@ -237,12 +288,14 @@
 					edit_message_id: message.id,
 					history
 				},
-				assistantID
+				assistantID,
+				run.controller.signal
 			);
 			editingText = '';
 			if (!privacy) await refreshChats();
 			await scrollBottom();
 		} catch (err) {
+			if (run.id !== runSeq || run.controller.signal.aborted) return;
 			messages = previousMessages;
 			if (!regenerate) {
 				editingID = message.id;
@@ -252,8 +305,11 @@
 			error = err.message;
 			toast(err.message, 'error');
 		} finally {
-			savingEdit = false;
-			streamingMessageID = '';
+			if (run.id === runSeq) {
+				activeRun = null;
+				savingEdit = false;
+				streamingMessageID = '';
+			}
 		}
 	}
 
@@ -261,7 +317,9 @@
 		if (!current?.id || privacy || sending || savingEdit) return;
 		const index = messages.findIndex((item) => item.id === message.id);
 		if (index < 0) return;
+		if (activeRun) interrupt({ restoreInput: false });
 		const previousMessages = messages;
+		const run = startRun(previousMessages, null, []);
 		const assistantID = 'stream-' + Date.now();
 		messages = messages.map((item, i) =>
 			i === index ? { ...item, id: assistantID, content: '', reasoning: '' } : item
@@ -280,17 +338,22 @@
 					stream: true,
 					history: []
 				},
-				assistantID
+				assistantID,
+				run.controller.signal
 			);
 			await refreshChats();
 			await scrollBottom();
 		} catch (err) {
+			if (run.id !== runSeq || run.controller.signal.aborted) return;
 			messages = previousMessages;
 			error = err.message;
 			toast(err.message, 'error');
 		} finally {
-			savingEdit = false;
-			streamingMessageID = '';
+			if (run.id === runSeq) {
+				activeRun = null;
+				savingEdit = false;
+				streamingMessageID = '';
+			}
 		}
 	}
 
@@ -431,6 +494,11 @@
 		privacy = !privacy;
 		if (privacy) current = null;
 	}
+
+	function toggleFullscreen() {
+		fullscreen = !fullscreen;
+		document.documentElement.classList.toggle('chat-fullscreen', fullscreen);
+	}
 </script>
 
 <div
@@ -523,11 +591,21 @@
 				</div>
 				{#if current?.title}<span class="current-title">{current.title}</span>{/if}
 			</div>
-			<div class="privacy-control">
-				<Icon name="shield" size={15} />
-				<span>{$t('chat.privacy')}</span>
-				<button class="switch small" class:on={privacy} onclick={togglePrivacy} aria-label={$t('chat.privacy')}></button>
-				<span class="privacy-state">{privacy ? $t('chat.privacyOn') : $t('chat.privacyOff')}</span>
+			<div class="chat-head-right">
+				<div class="privacy-control">
+					<Icon name="shield" size={15} />
+					<span>{$t('chat.privacy')}</span>
+					<button class="switch small" class:on={privacy} onclick={togglePrivacy} aria-label={$t('chat.privacy')}></button>
+					<span class="privacy-state">{privacy ? $t('chat.privacyOn') : $t('chat.privacyOff')}</span>
+				</div>
+				<button
+					class="btn btn-ghost btn-icon"
+					onclick={toggleFullscreen}
+					title={fullscreen ? $t('chat.exitFullscreen') : $t('chat.fullscreen')}
+					aria-label={fullscreen ? $t('chat.exitFullscreen') : $t('chat.fullscreen')}
+				>
+					<Icon name={fullscreen ? 'minimize' : 'maximize'} size={16} />
+				</button>
 			</div>
 		</header>
 
@@ -702,8 +780,13 @@
 						placeholder={$t('chat.placeholder')}
 						rows="1"
 					></textarea>
+					{#if activeRun}
+						<button class="btn btn-danger btn-icon stop-btn" onclick={stopGeneration} title={$t('chat.stop')} aria-label={$t('chat.stop')}>
+							<Icon name="stop" size={16} />
+						</button>
+					{/if}
 					<button class="btn btn-primary send-btn" onclick={send} disabled={!canSend} title={$t('chat.send')}>
-						{#if sending}<span class="spinner"></span>{:else}<Icon name="send" size={16} />{/if}
+						<Icon name="send" size={16} />
 					</button>
 				</div>
 				<div class="composer-hint">
@@ -895,6 +978,11 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.chat-head-right {
+		display: flex;
+		align-items: center;
+		gap: 10px;
 	}
 	.privacy-control {
 		display: flex;
@@ -1326,7 +1414,8 @@
 	.chat-input::placeholder {
 		color: var(--placeholder);
 	}
-	.send-btn {
+	.send-btn,
+	.stop-btn {
 		width: 34px;
 		height: 34px;
 		padding: 0;

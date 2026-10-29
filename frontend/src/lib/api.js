@@ -29,17 +29,18 @@ async function request(path, options = {}) {
 
 export const api = {
 	get: (path) => request(path),
-	post: (path, body) => request(path, { method: 'POST', body }),
-	stream: (path, body, onEvent) => streamJSON(path, body, onEvent),
+	post: (path, body, options = {}) => request(path, { method: 'POST', body, ...options }),
+	stream: (path, body, onEvent, options = {}) => streamJSON(path, body, onEvent, options),
 	patch: (path, body) => request(path, { method: 'PATCH', body }),
 	del: (path) => request(path, { method: 'DELETE' })
 };
 
 
-async function streamJSON(path, body, onEvent) {
+async function streamJSON(path, body, onEvent, options = {}) {
 	let res;
 	try {
 		res = await fetch(path, {
+			...options,
 			method: 'POST',
 			credentials: 'same-origin',
 			headers: { 'Content-Type': 'application/json' },

@@ -1046,3 +1046,30 @@ p {
 		z-index: 19;
 	}
 }
+
+html.chat-fullscreen .app-shell {
+	grid-template-columns: minmax(0, 1fr);
+}
+html.chat-fullscreen .sidebar,
+html.chat-fullscreen .topbar,
+html.chat-fullscreen .chat-history {
+	display: none;
+}
+html.chat-fullscreen .content {
+	max-width: none;
+	padding: 0;
+}
+html.chat-fullscreen .chat-layout {
+	grid-template-columns: minmax(0, 1fr);
+	gap: 0;
+	height: 100vh;
+	min-height: 0;
+}
+html.chat-fullscreen .chat-panel {
+	height: 100vh;
+	border: 0;
+	border-radius: 0;
+}
+html.chat-fullscreen body {
+	overflow: hidden;
+}
