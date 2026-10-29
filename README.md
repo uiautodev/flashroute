@@ -1,0 +1,184 @@
+# FlashRoute
+
+A compact AI gateway and chat console built with Go and SvelteKit. It aggregates DeepSeek, OpenRouter, BigModel, Anthropic and any OpenAI-compatible provider, with HTTP/SOCKS proxies, ordered route aliases, automatic 429 fallback, usage stats, client API keys, reversible message redaction and image-capable chat.
+
+English | [简体中文](README.zh-CN.md)
+
+## Features
+
+- **Multi-provider aggregation**: DeepSeek, OpenRouter, BigModel, Anthropic and custom OpenAI-compatible endpoints.
+- **Per-provider proxy**: `http://`, `https://`, `socks5://` or `socks5h://`, with an independent proxy connectivity test.
+- **Provider views and balances**: switch between card and list views. DeepSeek and OpenRouter balances / remaining limits can be queried directly.
+- **Provider models**: sync candidates from `/v1/models`, keep every model visible, toggle selection from the model chips, and test individual models with `1+1=? Only output the number.` Connection tests use the first model by default.
+- **API types**: Chat Completions, Responses or Anthropic Messages. Requests and streaming responses are converted automatically.
+- **Ordered route aliases**: for example `grounder` tries `ds/deepseek-flash`, then `aliyun/qwen3.8-27b`, falling back on 429, 5xx and network errors.
+- **Usage stats**: route request counts, success rate, per-target hit rate and 429 counts, persisted to YAML.
+- **Client keys**: generated with the `sk-fr-` prefix, masked by default in the UI and copyable with one click.
+- **Message redaction**: regex rules replace secrets in outbound messages before they reach a provider. The defaults cover API keys, Bearer tokens and private keys. Placeholders are reversible and restored in model replies; rules and the global switch live on the **Data redaction** page.
+- **OpenAI-compatible gateway**: `/v1/models` and `/v1/chat/completions`, including `stream: true`.
+- **Chat UI**: streaming output, reasoning display, text + images, Markdown, one-click copy, privacy mode (never written to disk) and conversation history.
+- **Per-message versions**: editing a user message adds a user-message version; regenerating an assistant reply adds an assistant-reply version. Each message shows its own `current/total` selector. The version tree is stored in SQLite.
+- **Languages and themes**: Chinese / English, dark / light / follow system.
+- **Access control**: localhost and desktop sessions need no password; remote access must set one. Use `-require-auth` behind a local reverse proxy.
+- **Single binary**: SvelteKit assets are embedded with `go:embed`.
+- **Desktop app**: optional Wails v2 shell reusing the same Go HTTP handler and frontend.
+
+## Alternatives
+
+FlashRoute focuses on a lightweight, single-binary, self-hosted gateway with a built-in chat console. If you need a fuller billing stack, agent configuration management or an enterprise gateway, these projects are good references:
+
+- [magpie](https://github.com/yetone/magpie) — local gateway and agent model switcher for Claude Code / Codex and more, with privacy masking, routing groups and subscription account pools.
+- [LiteLLM](https://github.com/BerriAI/litellm) — mature Python LLM gateway / SDK with a large provider catalog, OpenAI-compatible proxy, budgets and rate limits.
+- [New API](https://github.com/QuantumNous/new-api) — self-hosted LLM gateway with channels, tokens, billing and a user system.
+- [One API](https://github.com/songquanpeng/one-api) — OpenAI-compatible aggregation gateway with multi-provider and token management.
+- [Portkey Gateway](https://github.com/Portkey-AI/gateway) — production AI gateway with routing, caching, retries and guardrails.
+- [Bifrost](https://github.com/maximhq/bifrost) — high-performance Go AI gateway with multi-provider fallback and observability.
+- [Envoy AI Gateway](https://github.com/envoyproxy/ai-gateway) — Envoy-based AI traffic gateway for Kubernetes and platform teams.
+- [Higress](https://github.com/alibaba/higress) — cloud-native API gateway with AI proxy and multi-model routing.
+- [Helicone](https://github.com/Helicone/helicone) — LLM observability and proxy with caching, cost analytics and experiments.
+- [OpenRouter](https://openrouter.ai) — hosted multi-model aggregation service, not a self-hosted project.
+
+## Development
+
+The server requires Go 1.27.3+ and Node.js 22.17+. The optional desktop module uses [Wails v2](https://wails.io/).
+
+```bash
+# Build the frontend and the single server binary
+make build
+# Output: bin/flashroute
+
+./bin/flashroute
+# Open http://localhost:8080
+```
+
+Development mode (Vite HMR + Go backend):
+
+```bash
+make dev
+# Frontend: http://localhost:5173
+# Backend:  http://127.0.0.1:8080
+# Vite proxies /api and /v1 to the backend
+```
+
+Custom ports or data directory:
+
+```bash
+DEV_BACKEND_PORT=8081 DEV_FRONTEND_PORT=5174 make dev
+FLASHROUTE_DATA_DIR=/tmp/flashroute-dev make dev
+```
+
+Frontend edits hot-reload. Go edits trigger an automatic rebuild and backend restart; the backend log is written to `flashroute-dev-backend.log` in the temporary directory.
+
+Install the pre-commit hook once:
+
+```bash
+pre-commit install
+pre-commit run --all-files
+```
+
+The hook checks `gofmt`, runs `go vet`, `go test ./...` and builds the frontend.
+
+### Server mode
+
+```bash
+./bin/flashroute \
+  -listen 0.0.0.0:8080 \
+  -data-dir ~/.config/flashroute
+```
+
+The first visit from a **remote address** asks you to set a password. Requests from `localhost` / `127.0.0.1` stay password-free. Behind a local reverse proxy the proxy's requests look like loopback; add `-require-auth`:
+
+```bash
+./bin/flashroute -listen 0.0.0.0:8080 -require-auth
+```
+
+Other flags:
+
+```bash
+./bin/flashroute -version
+./bin/flashroute -listen 127.0.0.1:9000 -data-dir ./data
+FLASHROUTE_DATA_DIR=/path/to/data ./bin/flashroute
+```
+
+### Desktop (Wails)
+
+```bash
+make frontend
+make desktop
+# Output: desktop/build/bin/flashroute.app
+```
+
+`make desktop` runs `wails build`. Wails embeds the same frontend and Go HTTP handler; desktop sessions are always password-free.
+
+## Data directory
+
+The default is `~/.config/flashroute/`:
+
+```text
+~/.config/flashroute/
+├── config.yaml   # providers, models, routes, API keys, password hash
+├── stats.yaml    # route and target stats
+├── chats.db      # non-private chats and message version tree (pure-Go SQLite)
+└── uploads/      # non-private chat images
+```
+
+Provider API keys are stored in plain text in `config.yaml` and masked by default in the UI; use the copy button to get the full value. Files are created with `0600` and the data directory with `0700`. Chats use pure-Go SQLite; editing a user message adds a user-message version, and regenerating an assistant reply adds a reply version. An existing `chats.yaml` is migrated to `chats.db` automatically on startup.
+
+## Using the gateway
+
+Create or copy an `sk-fr-` key on the **API Keys** page, then:
+
+```bash
+curl http://localhost:8080/v1/models \
+  -H "Authorization: Bearer sk-fr-..."
+
+curl http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer sk-fr-..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "grounder",
+    "messages": [{"role": "user", "content": "hello"}],
+    "stream": true
+  }'
+```
+
+The model name can be:
+
+- a route alias, such as `grounder`
+- a direct model, formatted as `<provider-id>/<model-id>`, such as `deepseek/deepseek-chat`
+
+Response headers expose the actual target:
+
+```text
+X-FlashRoute-Alias
+X-FlashRoute-Provider
+X-FlashRoute-Model
+X-FlashRoute-Attempts
+```
+
+## Project layout
+
+```text
+cmd/flashroute/        server entry point
+desktop/               optional Wails desktop entry (separate Go module)
+frontend/              SvelteKit frontend; build/ is embedded with go:embed
+internal/config/       config data structures
+internal/store/        config, stats and chat persistence
+internal/gateway/      upstream requests, proxies, model tests, fallback routing
+internal/server/       HTTP API, auth, gateway and static files
+```
+
+## Testing
+
+```bash
+make test
+# or build the frontend first, then run Go tests
+make frontend
+go test ./...
+```
+
+The UI is tested in a real browser with Playwright, covering provider setup, model sync and tests, proxy tests, 429 fallback, Markdown chat, message editing and version switching, images, privacy mode, API key copying, themes, language switching and remote-password flows.
+
+## License
+
+[MIT](LICENSE)
