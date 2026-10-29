@@ -196,7 +196,7 @@ git tag v1.2.3
 git push origin v1.2.3
 ```
 
-GitHub Actions 会构建前端、交叉编译服务端二进制，连同 `SHA256SUMS` 一起上传到 GitHub Release；配置 `NPM_TOKEN` 仓库密钥后，还会发布同版本的 npm 包。二进制版本号使用去掉前导 `v` 的 tag，commit hash 会注入二进制并显示在设置页。
+GitHub Actions 会构建前端、交叉编译服务端二进制，连同 `SHA256SUMS` 一起上传到 GitHub Release；配置 `NPM_TOKEN` 仓库密钥（npm automation token）后，还会发布同版本的 npm 包，包名为 `flashroute`。二进制版本号使用去掉前导 `v` 的 tag，commit hash 会注入二进制并显示在设置页。
 
 ## License
 

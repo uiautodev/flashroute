@@ -196,7 +196,7 @@ git tag v1.2.3
 git push origin v1.2.3
 ```
 
-GitHub Actions builds the frontend and cross-compiles the server binaries, uploads them with a `SHA256SUMS` file to the GitHub Release, and publishes the matching npm package when the `NPM_TOKEN` repository secret is configured. Binary versions use the tag without the leading `v`, and the commit hash is embedded into the binary and shown on the Settings page.
+GitHub Actions builds the frontend and cross-compiles the server binaries, uploads them with a `SHA256SUMS` file to the GitHub Release, and publishes the matching npm package when the `NPM_TOKEN` repository secret (an npm automation token) is configured. The package is published as `flashroute`. Binary versions use the tag without the leading `v`, and the commit hash is embedded into the binary and shown on the Settings page.
 
 ## License
 

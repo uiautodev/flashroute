@@ -13,6 +13,9 @@ if [[ -n "${unformatted}" ]]; then
 	exit 1
 fi
 
+node --check npm/bin/flashroute.js
+node --check scripts/publish-npm.mjs
+
 go vet ./...
 go test ./...
 
