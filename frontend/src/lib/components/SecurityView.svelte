@@ -203,7 +203,6 @@
 								<div class="redact-item">
 									<input class="rule-name" bind:value={rule.name} placeholder={$t('security.redactName')} aria-label={$t('security.redactName')} />
 									<input class="input mono rule-pattern" bind:value={rule.pattern} placeholder={$t('security.redactPattern')} aria-label={$t('security.redactPattern')} />
-									<input class="input mono rule-replacement" bind:value={rule.replacement} placeholder={$t('security.redactReplacement')} aria-label={$t('security.redactReplacement')} />
 									<input class="input rule-group" bind:value={rule.group} list="redact-groups" placeholder={$t('security.group')} aria-label={$t('security.group')} onchange={() => (rules = [...rules])} />
 									<button class="hits-btn" onclick={() => openRecords(rule)} title={`${$t('security.redactHits')} ${counts[rule.id] || 0}`} aria-label={`${$t('security.redactHits')} ${counts[rule.id] || 0}`}>
 										{counts[rule.id] || 0}
@@ -411,10 +410,7 @@
 		border-bottom-color: var(--accent);
 	}
 	.rule-pattern {
-		flex: 2 1 220px;
-	}
-	.rule-replacement {
-		flex: 1 1 100px;
+		flex: 3 1 260px;
 	}
 	.rule-group {
 		flex: 0 1 84px;
@@ -499,8 +495,7 @@
 		margin-top: 14px;
 	}
 	@media (max-width: 720px) {
-		.rule-pattern,
-		.rule-replacement {
+		.rule-pattern {
 			flex-basis: calc(100% - 34px);
 		}
 		.redact-actions {

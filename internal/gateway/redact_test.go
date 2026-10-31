@@ -49,8 +49,8 @@ func TestGatewayRedactsAndRestoresMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := st.SetRedactRules([]config.RedactRule{
-		{Pattern: `(sk-)[A-Za-z0-9]+`, Replacement: "$1***", Enabled: true},
-		{Pattern: `(secret-)\d+`, Replacement: "$1***", Enabled: true},
+		{Pattern: `(sk-)[A-Za-z0-9]+`, Enabled: true},
+		{Pattern: `(secret-)\d+`, Enabled: true},
 		{Pattern: `(skip-)[A-Za-z0-9]+`, Enabled: false},
 	}); err != nil {
 		t.Fatal(err)

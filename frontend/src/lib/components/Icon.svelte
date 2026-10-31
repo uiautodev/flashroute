@@ -25,6 +25,8 @@
 	import Monitor from '@lucide/svelte/icons/monitor';
 	import Moon from '@lucide/svelte/icons/moon';
 	import Pencil from '@lucide/svelte/icons/pencil';
+	import Plug from '@lucide/svelte/icons/plug';
+	import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	import Plus from '@lucide/svelte/icons/plus';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import Route from '@lucide/svelte/icons/route';
@@ -71,6 +73,8 @@
 		menu: Menu,
 		monitor: Monitor,
 		moon: Moon,
+		plug: Plug,
+		terminal: SquareTerminal,
 		plus: Plus,
 		refresh: RefreshCw,
 		route: Route,

@@ -52,7 +52,7 @@ func New(dir string) (*Store, error) {
 	firstRun := false
 	if _, err := os.Stat(s.configPath()); errors.Is(err, os.ErrNotExist) {
 		firstRun = true
-		s.cfg = config.Config{Version: 8}
+		s.cfg = config.Config{Version: 9}
 		if err := s.saveConfigLocked(); err != nil {
 			return nil, err
 		}
@@ -114,16 +114,6 @@ func New(dir string) (*Store, error) {
 		s.cfg.Version = 2
 		changed = true
 	}
-	if s.cfg.Version < 3 {
-		for i := range s.cfg.RedactRules {
-			if s.cfg.RedactRules[i].ID == "api-key" && strings.TrimSpace(s.cfg.RedactRules[i].Replacement) == "" {
-				s.cfg.RedactRules[i].Replacement = "***"
-				changed = true
-			}
-		}
-		s.cfg.Version = 3
-		changed = true
-	}
 	if s.cfg.Version < 4 {
 		for i := range s.cfg.RedactRules {
 			if strings.TrimSpace(s.cfg.RedactRules[i].Group) != "" {
@@ -140,45 +130,6 @@ func New(dir string) (*Store, error) {
 		s.cfg.Version = 4
 		changed = true
 	}
-	if s.cfg.Version < 5 {
-		for i := range s.cfg.RedactRules {
-			replacement := strings.TrimSpace(s.cfg.RedactRules[i].Replacement)
-			if s.cfg.RedactRules[i].ID == "api-key" && (replacement == "" || strings.Trim(replacement, "*") == "") {
-				s.cfg.RedactRules[i].Replacement = "sk-***"
-				changed = true
-			}
-		}
-		s.cfg.Version = 5
-		changed = true
-	}
-	if s.cfg.Version < 6 {
-		for i := range s.cfg.RedactRules {
-			rule := &s.cfg.RedactRules[i]
-			if strings.TrimSpace(rule.Replacement) != "" {
-				continue
-			}
-			switch rule.ID {
-			case "bearer-token":
-				rule.Replacement = "$1***"
-				changed = true
-			case "email":
-				rule.Pattern = config.EmailRedactPattern
-				rule.Replacement = "***$2"
-				changed = true
-			case "private-key":
-				rule.Replacement = "$1***$2"
-				changed = true
-			}
-		}
-		for i := range s.cfg.RedactRules {
-			if s.cfg.RedactRules[i].ID == "email" && s.cfg.RedactRules[i].Pattern == config.LegacyEmailRedactPattern {
-				s.cfg.RedactRules[i].Pattern = config.EmailRedactPattern
-				changed = true
-			}
-		}
-		s.cfg.Version = 6
-		changed = true
-	}
 	if s.cfg.Version < 8 {
 		for _, rule := range config.DefaultRedactRules() {
 			if _, ok := findRedactRule(s.cfg.RedactRules, rule.ID); ok {
@@ -188,6 +139,37 @@ func New(dir string) (*Store, error) {
 			changed = true
 		}
 		s.cfg.Version = 8
+		changed = true
+	}
+	if s.cfg.Version < 9 {
+		var pgpPattern string
+		for _, rule := range config.DefaultRedactRules() {
+			if rule.ID == "pgp-private-key" {
+				pgpPattern = rule.Pattern
+				break
+			}
+		}
+		for i := range s.cfg.RedactRules {
+			rule := &s.cfg.RedactRules[i]
+			switch rule.ID {
+			case "bearer-token":
+				if rule.Pattern == config.LegacyBearerRedactPattern || rule.Pattern == config.LegacyBearerTokenPattern {
+					rule.Pattern = config.BearerRedactPattern
+					changed = true
+				}
+			case "email":
+				if rule.Pattern == config.LegacyEmailRedactPattern || rule.Pattern == config.LegacyEmailLocalPattern {
+					rule.Pattern = config.EmailRedactPattern
+					changed = true
+				}
+			case "pgp-private-key":
+				if pgpPattern != "" && rule.Pattern != pgpPattern {
+					rule.Pattern = pgpPattern
+					changed = true
+				}
+			}
+		}
+		s.cfg.Version = 9
 		changed = true
 	}
 	if firstRun && len(s.cfg.APIKeys) == 0 {

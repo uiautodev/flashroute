@@ -18,7 +18,7 @@ English | [简体中文](README.zh-CN.md)
 - **Ordered route aliases**: for example `grounder` tries `ds/deepseek-flash`, then `aliyun/qwen3.8-27b`, falling back on 429, 5xx and network errors.
 - **Usage stats**: route request counts, success rate, per-target hit rate and 429 counts, persisted to YAML.
 - **Client keys**: generated with the `sk-fr-` prefix, masked by default in the UI and copyable with one click. Localhost requests can skip the gateway key by default; toggle this on the **API Keys** page.
-- **Message redaction**: regex rules replace secrets in outbound messages before they reach a provider. Matches become same-length random values, keeping punctuation, whitespace and PEM markers, so a key like `sk-123456` still looks like a key, private keys keep their shape and email addresses keep the domain after `@`. Everything is restored in model replies; chat messages with sensitive content get a **Safe** badge. Each rule can use a same-length mask placeholder such as `***`, a literal replacement, or capture-group backreferences such as `$1`; hit counts and the last 30 days of replacement records are available on the **Data redaction** page and can be cleared immediately. Rules and the global switch also live there.
+- **Message redaction**: regex rules replace secrets in outbound messages before they reach a provider. Matches become same-length random values, keeping punctuation, whitespace and PEM markers, so a key like `sk-123456` still looks like a key, private keys keep their shape and email addresses keep the domain after `@`. Everything is restored in model replies; chat messages with sensitive content get a **Safe** badge. Text inside regex capture groups is preserved and the rest of each match is masked with the same length; hit counts and the last 30 days of replacement records are available on the **Data redaction** page and can be cleared immediately. Rules and the global switch also live there.
 - **OpenAI-compatible gateway**: `/v1/models` and `/v1/chat/completions`, including `stream: true`.
 - **Chat UI**: streaming output, reasoning toggle, text + images, Markdown, one-click copy, privacy mode (never written to disk), conversation history with delete/clear, and optional web search (on by default).
 - **Per-message versions**: editing a user message adds a user-message version; regenerating an assistant reply adds an assistant-reply version. Each message shows its own `current/total` selector. The version tree is stored in SQLite.
@@ -26,6 +26,7 @@ English | [简体中文](README.zh-CN.md)
 - **Access control**: localhost and desktop sessions need no password; remote access must set one. Use `-require-auth` behind a local reverse proxy.
 - **Single binary**: SvelteKit assets are embedded with `go:embed`.
 - **Desktop app**: optional Wails v3 shell reusing the same Go HTTP handler and frontend; it serves the OpenAI-compatible gateway on `http://127.0.0.1:11211` by default (configurable), and macOS streaming is supported through the Wails v3 asset server.
+- **Agent integrations**: detect Claude Code and OpenCode, then apply the selected chat model with one click. Claude Code is pointed at the selected provider's Anthropic endpoint; OpenCode gets FlashRoute as an OpenAI-compatible provider.
 - **In-app updates**: check the latest GitHub release from Settings, verify the downloaded asset with `SHA256SUMS`, install it and restart automatically. macOS desktop builds update the app bundle and re-sign it ad hoc.
 
 ## Alternatives
@@ -186,6 +187,15 @@ FLASHROUTE_UPDATE_BASE_URL=https://mirror.example/flashroute/releases/download \
 ## Chat web search
 
 The chat header has a **Web search** switch, on by default. When enabled, the model gets `web_search` and `web_fetch` function tools and decides when to call them. If a DeepSeek provider is configured, the tools use the DeepSeek Search / Fetch APIs; otherwise FlashRoute falls back to Bing search and direct page fetching. The current date and time are included in the tool prompt. When redaction is enabled, queries are redacted before they leave FlashRoute. Set `FLASHROUTE_SEARCH_URL` to use a compatible Bing or DuckDuckGo HTML endpoint or mirror for the fallback search.
+
+## Agent integrations
+
+Open the **Agents** page to detect locally installed coding agents. Choose a model or route alias from the picker and click **Apply**:
+
+- **OpenCode** gets a `flashroute` provider pointing at the FlashRoute `/v1` gateway, plus the selected model in its model list.
+- **Claude Code** is pointed at the selected provider's Anthropic endpoint with that provider's own key and model.
+
+Connected agents are marked in the UI, and **Disconnect** removes the FlashRoute provider/environment again. Existing configs are backed up next to the original file before writing. Only detected agents can be applied.
 
 ## Project layout
 

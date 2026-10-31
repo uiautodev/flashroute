@@ -176,8 +176,8 @@ func TestEmailRuleAddedOnUpgrade(t *testing.T) {
 	if _, ok := findRedactRule(st.RedactRules(), "email"); !ok {
 		t.Fatalf("email rule was not added: %+v", st.RedactRules())
 	}
-	if st.Snapshot().Version != 8 {
-		t.Fatalf("version = %d, want 8", st.Snapshot().Version)
+	if st.Snapshot().Version != 9 {
+		t.Fatalf("version = %d, want 9", st.Snapshot().Version)
 	}
 }
 
@@ -219,37 +219,12 @@ func TestRedactionRecordsAndDesktopPort(t *testing.T) {
 	}
 }
 
-func TestLegacyAPIKeyReplacementMigrates(t *testing.T) {
-	dir := t.TempDir()
-	cfg := config.Config{
-		Version: 2,
-		RedactRules: []config.RedactRule{{
-			ID: "api-key", Name: "API keys", Pattern: config.APIKeyRedactPattern, Enabled: true,
-		}},
-	}
-	data, err := yaml.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	st, err := New(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rule, ok := findRedactRule(st.RedactRules(), "api-key")
-	if !ok || rule.Replacement != "sk-***" || st.Snapshot().Version != 8 {
-		t.Fatalf("rule = %+v version = %d", rule, st.Snapshot().Version)
-	}
-}
-
 func TestRedactRuleGroupsMigrate(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{
 		Version: 3,
 		RedactRules: []config.RedactRule{
-			{ID: "api-key", Name: "API keys", Pattern: config.APIKeyRedactPattern, Replacement: "***", Enabled: true},
+			{ID: "api-key", Name: "API keys", Pattern: config.APIKeyRedactPattern, Enabled: true},
 			{ID: "email", Name: "Email addresses", Pattern: config.EmailRedactPattern, Enabled: true},
 		},
 	}
@@ -266,7 +241,7 @@ func TestRedactRuleGroupsMigrate(t *testing.T) {
 	}
 	api, _ := findRedactRule(st.RedactRules(), "api-key")
 	email, _ := findRedactRule(st.RedactRules(), "email")
-	if api.Group != "keys" || email.Group != "identity" || st.Snapshot().Version != 8 {
+	if api.Group != "keys" || email.Group != "identity" || st.Snapshot().Version != 9 {
 		t.Fatalf("api=%+v email=%+v version=%d", api, email, st.Snapshot().Version)
 	}
 }
@@ -284,5 +259,37 @@ func TestLocalNoKeySetting(t *testing.T) {
 	}
 	if st.LocalNoKeyEnabled() {
 		t.Fatal("local no-key was not disabled")
+	}
+}
+
+func TestLegacyRedactPatternsMigrate(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Config{
+		Version: 8,
+		RedactRules: []config.RedactRule{
+			{ID: "bearer-token", Name: "Bearer tokens", Pattern: config.LegacyBearerTokenPattern, Enabled: true},
+			{ID: "email", Name: "Email addresses", Pattern: config.LegacyEmailLocalPattern, Enabled: true},
+			{ID: "pgp-private-key", Name: "PGP private keys", Pattern: `(?s)(bad-literal)`, Enabled: true},
+		},
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bearer, _ := findRedactRule(st.RedactRules(), "bearer-token")
+	email, _ := findRedactRule(st.RedactRules(), "email")
+	pgp, _ := findRedactRule(st.RedactRules(), "pgp-private-key")
+	if bearer.Pattern != config.BearerRedactPattern || email.Pattern != config.EmailRedactPattern {
+		t.Fatalf("patterns not migrated: bearer=%q email=%q", bearer.Pattern, email.Pattern)
+	}
+	if pgp.Pattern == `(?s)(bad-literal)` || st.Snapshot().Version != 9 {
+		t.Fatalf("pgp pattern/version not migrated: %q %d", pgp.Pattern, st.Snapshot().Version)
 	}
 }

@@ -9,7 +9,6 @@ import (
 	"io"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/uiautodev/flashroute/internal/config"
@@ -23,10 +22,9 @@ const (
 )
 
 type rule struct {
-	id          string
-	name        string
-	replacement string
-	re          *regexp.Regexp
+	id   string
+	name string
+	re   *regexp.Regexp
 }
 
 type Hit struct {
@@ -81,10 +79,7 @@ func compile(rules []config.RedactRule, strict bool) (*Redactor, error) {
 			}
 			continue
 		}
-		out.rules = append(out.rules, rule{
-			id: item.ID, name: item.Name,
-			replacement: strings.TrimSpace(item.Replacement), re: re,
-		})
+		out.rules = append(out.rules, rule{id: item.ID, name: item.Name, re: re})
 	}
 	return out, nil
 }
@@ -114,12 +109,7 @@ func (r *Redactor) maskRule(item rule, value string) string {
 	for _, match := range matches {
 		out.WriteString(value[last:match[0]])
 		original := value[match[0]:match[1]]
-		var replacement string
-		if item.replacement != "" {
-			replacement = r.maskReplacement(item, value, match)
-		} else {
-			replacement = r.maskSecret(item, original)
-		}
+		replacement := r.maskMatch(item, value, match)
 		if r.record {
 			r.hits = append(r.hits, Hit{
 				RuleID: item.id, RuleName: item.name,
@@ -130,6 +120,46 @@ func (r *Redactor) maskRule(item rule, value string) string {
 		last = match[1]
 	}
 	out.WriteString(value[last:])
+	return out.String()
+}
+
+func (r *Redactor) maskMatch(item rule, source string, match []int) string {
+	start, end := match[0], match[1]
+	type span struct{ start, end int }
+	spans := make([]span, 0, (len(match)-2)/2)
+	for i := 1; i*2+1 < len(match); i++ {
+		groupStart, groupEnd := match[i*2], match[i*2+1]
+		if groupStart < 0 || groupEnd < groupStart {
+			continue
+		}
+		spans = append(spans, span{groupStart, groupEnd})
+	}
+	if len(spans) == 0 {
+		return r.maskSecret(item, source[start:end])
+	}
+	sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
+	merged := spans[:0]
+	for _, current := range spans {
+		if len(merged) == 0 || current.start > merged[len(merged)-1].end {
+			merged = append(merged, current)
+			continue
+		}
+		if current.end > merged[len(merged)-1].end {
+			merged[len(merged)-1].end = current.end
+		}
+	}
+	var out strings.Builder
+	cursor := start
+	for _, keep := range merged {
+		if keep.start > cursor {
+			out.WriteString(r.maskSecret(item, source[cursor:keep.start]))
+		}
+		out.WriteString(source[keep.start:keep.end])
+		cursor = keep.end
+	}
+	if cursor < end {
+		out.WriteString(r.maskSecret(item, source[cursor:end]))
+	}
 	return out.String()
 }
 
@@ -153,153 +183,6 @@ func (r *Redactor) maskSecret(item rule, secret string) string {
 	tag := fmt.Sprintf("sk-%x", sha256.Sum256(append(append([]byte{}, r.secret...), secret...)))
 	r.storeMapping(secret, tag)
 	return tag
-}
-
-func (r *Redactor) maskReplacement(item rule, source string, match []int) string {
-	original := source[match[0]:match[1]]
-	if tag, ok := r.byOriginal[original]; ok {
-		return tag
-	}
-	for attempt := 0; attempt < 64; attempt++ {
-		tag := r.buildReplacement(item, original, source, match, attempt)
-		if tag == original {
-			continue
-		}
-		if _, used := r.reverse[tag]; !used {
-			r.storeMapping(original, tag)
-			return tag
-		}
-	}
-	tag := r.fallbackReplacement(item, original)
-	r.storeMapping(original, tag)
-	return tag
-}
-
-func (r *Redactor) fallbackReplacement(item rule, original string) string {
-	for attempt := 0; attempt < 64; attempt++ {
-		tag := r.maskChars(item.id, original, original, len(original), attempt)
-		if tag != original {
-			if _, used := r.reverse[tag]; !used {
-				return tag
-			}
-		}
-	}
-	return fmt.Sprintf("sk-%x", sha256.Sum256(append(append([]byte{}, r.secret...), original...)))
-}
-
-func expandBackrefs(template, source string, match []int) string {
-	var out strings.Builder
-	for i := 0; i < len(template); i++ {
-		c := template[i]
-		if c != '$' || i+1 >= len(template) {
-			out.WriteByte(c)
-			continue
-		}
-		next := template[i+1]
-		switch {
-		case next == '$':
-			out.WriteByte('$')
-			i++
-		case next == '&':
-			out.WriteString(source[match[0]:match[1]])
-			i++
-		case next == '{':
-			end := strings.IndexByte(template[i+2:], '}')
-			if end < 0 {
-				out.WriteByte(c)
-				continue
-			}
-			group := template[i+2 : i+2+end]
-			if n, ok := parseGroupIndex(group); ok {
-				out.WriteString(submatch(source, match, n))
-			}
-			i += 2 + end
-		case next >= '0' && next <= '9':
-			j := i + 1
-			for j < len(template) && template[j] >= '0' && template[j] <= '9' {
-				j++
-			}
-			if n, ok := parseGroupIndex(template[i+1 : j]); ok {
-				out.WriteString(submatch(source, match, n))
-			}
-			i = j - 1
-		default:
-			out.WriteByte('$')
-		}
-	}
-	return out.String()
-}
-
-func parseGroupIndex(value string) (int, bool) {
-	n, err := strconv.Atoi(value)
-	if err != nil || n < 0 {
-		return 0, false
-	}
-	return n, true
-}
-
-func submatch(source string, match []int, n int) string {
-	if n < 0 || 2*n+1 >= len(match) || match[2*n] < 0 {
-		return ""
-	}
-	return source[match[2*n]:match[2*n+1]]
-}
-
-var starRunPattern = regexp.MustCompile(`\*+`)
-
-func (r *Redactor) buildReplacement(item rule, original, source string, match []int, attempt int) string {
-	replacement := expandBackrefs(item.replacement, source, match)
-	loc := starRunPattern.FindStringIndex(replacement)
-	if loc == nil {
-		return replacement
-	}
-	before := replacement[:loc[0]]
-	after := starRunPattern.ReplaceAllString(replacement[loc[1]:], "")
-	generatedLen := len(original) - len(before) - len(after)
-	if generatedLen < 0 {
-		generatedLen = 0
-	}
-	shapeStart := len(before)
-	if shapeStart > len(original) {
-		shapeStart = len(original)
-	}
-	shapeEnd := len(original) - len(after)
-	if shapeEnd < shapeStart {
-		shapeEnd = shapeStart
-	}
-	shape := original[shapeStart:shapeEnd]
-	return before + r.maskChars(item.id, original, shape, generatedLen, attempt) + after
-}
-
-func (r *Redactor) maskChars(ruleID, original, shape string, length, attempt int) string {
-	mac := hmac.New(sha256.New, r.secret)
-	mac.Write([]byte(ruleID))
-	mac.Write([]byte{0})
-	mac.Write([]byte(original))
-	var attemptBytes [8]byte
-	binary.BigEndian.PutUint64(attemptBytes[:], uint64(attempt))
-	mac.Write(attemptBytes[:])
-	sum := mac.Sum(nil)
-	out := make([]byte, length)
-	for i := 0; i < length; i++ {
-		c := byte(0)
-		if i < len(shape) {
-			c = shape[i]
-		}
-		switch {
-		case c >= '0' && c <= '9':
-			out[i] = digitsAlphabet[int(sum[i%len(sum)])%len(digitsAlphabet)]
-		case c >= 'A' && c <= 'Z':
-			out[i] = upperAlphabet[int(sum[i%len(sum)])%len(upperAlphabet)]
-		case c >= 'a' && c <= 'z':
-			out[i] = maskAlphabet[int(sum[i%len(sum)])%len(maskAlphabet)]
-		case c != 0 && !isAlphaNumeric(c):
-			out[i] = c
-		default:
-			out[i] = maskAlphabet[int(sum[i%len(sum)])%len(maskAlphabet)]
-		}
-	}
-	return string(out)
 }
 
 func (r *Redactor) storeMapping(original, tag string) {

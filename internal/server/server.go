@@ -7,9 +7,11 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 
+	"github.com/uiautodev/flashroute/internal/agents"
 	"github.com/uiautodev/flashroute/internal/gateway"
 	"github.com/uiautodev/flashroute/internal/store"
 	"github.com/uiautodev/flashroute/internal/update"
@@ -25,6 +27,7 @@ type Options struct {
 	GatewayEndpoint string
 	Updater         *update.Client
 	Search          websearch.Searcher
+	Agents          *agents.Service
 }
 
 type Server struct {
@@ -34,6 +37,7 @@ type Server struct {
 	mux      *http.ServeMux
 	updateMu sync.Mutex
 	search   websearch.Searcher
+	agents   *agents.Service
 }
 
 func New(st *store.Store, gw *gateway.Gateway, opts Options) *Server {
@@ -43,9 +47,17 @@ func New(st *store.Store, gw *gateway.Gateway, opts Options) *Server {
 	if opts.Search == nil {
 		opts.Search = websearch.New()
 	}
-	s := &Server{store: st, gw: gw, opts: opts, mux: http.NewServeMux(), search: opts.Search}
+	if opts.Agents == nil {
+		home, _ := os.UserHomeDir()
+		opts.Agents = agents.New(home)
+	}
+	s := &Server{store: st, gw: gw, opts: opts, mux: http.NewServeMux(), search: opts.Search, agents: opts.Agents}
 	s.routes()
 	return s
+}
+
+func (s *Server) SetGatewayEndpoint(endpoint string) {
+	s.opts.GatewayEndpoint = strings.TrimRight(endpoint, "/")
 }
 
 func (s *Server) Handler() http.Handler {
@@ -96,6 +108,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/chat", s.admin(s.handleSendChat))
 	s.mux.HandleFunc("GET /api/uploads/{name}", s.admin(s.handleUpload))
 
+	s.mux.HandleFunc("GET /api/agents", s.admin(s.handleListAgents))
+	s.mux.HandleFunc("POST /api/agents/apply", s.admin(s.handleApplyAgent))
+	s.mux.HandleFunc("POST /api/agents/disconnect", s.admin(s.handleDisconnectAgent))
 	s.mux.HandleFunc("POST /api/settings/desktop-port", s.admin(s.handleSetDesktopPort))
 	s.mux.HandleFunc("GET /api/update/check", s.admin(s.handleUpdateCheck))
 	s.mux.HandleFunc("POST /api/update/apply", s.admin(s.handleUpdateApply))

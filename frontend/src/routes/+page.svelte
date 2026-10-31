@@ -13,6 +13,7 @@
 	import KeysView from '#lib/components/KeysView.svelte';
 	import SecurityView from '#lib/components/SecurityView.svelte';
 	import SettingsView from '#lib/components/SettingsView.svelte';
+	import AgentsView from '#lib/components/AgentsView.svelte';
 
 	const nav = [
 		{ id: 'chat', icon: 'chat', label: 'nav.chat', title: 'chat.title', sub: 'chat.subtitle' },
@@ -20,6 +21,7 @@
 		{ id: 'routes', icon: 'route', label: 'nav.routes', title: 'routes.title', sub: 'routes.subtitle' },
 		{ id: 'keys', icon: 'key', label: 'nav.keys', title: 'keys.title', sub: 'keys.subtitle' },
 		{ id: 'security', icon: 'shield', label: 'nav.security', title: 'security.title', sub: 'security.subtitle' },
+		{ id: 'agents', icon: 'plug', label: 'nav.agents', title: 'agents.title', sub: 'agents.subtitle' },
 		{ id: 'settings', icon: 'settings', label: 'nav.settings', title: 'settings.title', sub: 'settings.subtitle' }
 	];
 
@@ -176,6 +178,8 @@
 					<KeysView />
 				{:else if view === 'security'}
 					<SecurityView />
+				{:else if view === 'agents'}
+					<AgentsView />
 				{:else if view === 'settings'}
 					<SettingsView {status} onLogout={logout} />
 				{/if}

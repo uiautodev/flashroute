@@ -12,7 +12,7 @@ import (
 
 func testRedactor() *Redactor {
 	return Compile([]config.RedactRule{
-		{Pattern: `(sk-)[A-Za-z0-9]+`, Replacement: "$1***", Enabled: true},
+		{Pattern: `(sk-)[A-Za-z0-9]+`, Enabled: true},
 	})
 }
 
@@ -20,7 +20,7 @@ func TestMaskAndRestore(t *testing.T) {
 	original := "a sk-123456 b sk-123456 c sk-abcdef"
 	r := testRedactor()
 	masked := r.MaskText(original)
-	tags := regexp.MustCompile(`sk-[a-z0-9]{6}`).FindAllString(masked, -1)
+	tags := regexp.MustCompile(`sk-[a-z0-9]+`).FindAllString(masked, -1)
 	if len(tags) != 3 {
 		t.Fatalf("masked = %q, want 3 tags", masked)
 	}
@@ -37,9 +37,9 @@ func TestMaskAndRestore(t *testing.T) {
 
 func TestMaskPreservesFormat(t *testing.T) {
 	original := "key sk-123456 end"
-	r := Compile([]config.RedactRule{{Pattern: config.APIKeyRedactPattern, Replacement: "sk-***", Enabled: true}})
+	r := Compile([]config.RedactRule{{Pattern: config.APIKeyRedactPattern, Enabled: true}})
 	masked := r.MaskText(original)
-	if !regexp.MustCompile(`^key sk-[a-z0-9]{6} end$`).MatchString(masked) {
+	if !regexp.MustCompile(`^key sk-[a-z0-9]+ end$`).MatchString(masked) {
 		t.Fatalf("masked = %q, want a same-length sk- token", masked)
 	}
 	if len(masked) != len(original) {
@@ -70,7 +70,7 @@ func TestStreamRestorerAcrossDeltas(t *testing.T) {
 	original := "a sk-123456 b sk-123456 c"
 	r := testRedactor()
 	masked := r.MaskText(original)
-	loc := regexp.MustCompile(`sk-[a-z0-9]{6}`).FindStringIndex(masked)
+	loc := regexp.MustCompile(`sk-[a-z0-9]+`).FindStringIndex(masked)
 	if loc == nil {
 		t.Fatalf("masked text has no tag: %q", masked)
 	}
@@ -89,7 +89,7 @@ func TestStreamRestorerAcrossDeltas(t *testing.T) {
 
 func TestBearerKeepsPrefix(t *testing.T) {
 	r := Compile([]config.RedactRule{{
-		Pattern: `(?i)\b(Bearer\s+)([A-Za-z0-9._~+/=-]{16,})`, Replacement: "$1***", Enabled: true,
+		Pattern: config.BearerRedactPattern, Enabled: true,
 	}})
 	original := "Authorization: Bearer 234567890987654sdfasdf"
 	masked := r.MaskText(original)
@@ -180,31 +180,23 @@ func TestEmailKeepsDomain(t *testing.T) {
 	}
 }
 
-func TestReplacementAndStableMask(t *testing.T) {
-	rules := []config.RedactRule{
-		{ID: "bearer", Name: "Bearer", Pattern: config.BearerRedactPattern, Replacement: "[REDACTED]", Enabled: true},
-	}
-	r := CompileWithSecret(rules, []byte("session-secret"))
-	masked := r.MaskText("Authorization: Bearer 345678901234567890")
-	if masked != "Authorization: [REDACTED]" {
-		t.Fatalf("masked = %q", masked)
-	}
-	if got := r.Restore(masked); got != "Authorization: Bearer 345678901234567890" {
-		t.Fatalf("restored = %q", got)
-	}
-
-	deterministicRules := []config.RedactRule{{ID: "api-key", Pattern: config.APIKeyRedactPattern, Replacement: "sk-***", Enabled: true}}
-	first := CompileWithSecret(deterministicRules, []byte("secret-a")).MaskText("sk-abcdef")
-	second := CompileWithSecret(deterministicRules, []byte("secret-a")).MaskText("sk-abcdef")
-	third := CompileWithSecret(deterministicRules, []byte("secret-b")).MaskText("sk-abcdef")
+func TestCaptureGroupsPreservedAndStableMask(t *testing.T) {
+	rules := []config.RedactRule{{ID: "api-key", Pattern: config.APIKeyRedactPattern, Enabled: true}}
+	r := CompileWithSecret(rules, []byte("secret-a"))
+	first := r.MaskText("key sk-abcdef")
+	second := r.MaskText("key sk-abcdef")
+	third := CompileWithSecret(rules, []byte("secret-b")).MaskText("key sk-abcdef")
 	if first != second {
 		t.Fatalf("same session produced different masks: %q vs %q", first, second)
 	}
 	if first == third {
 		t.Fatalf("different session secrets produced the same mask: %q", first)
 	}
-	if len(first) != len("sk-123456") || !strings.HasPrefix(first, "sk-") {
-		t.Fatalf("mask did not preserve the shape: %q", first)
+	if len(first) != len("key sk-abcdef") || !strings.HasPrefix(first, "key sk-") || first == "key sk-abcdef" {
+		t.Fatalf("mask did not preserve the captured prefix: %q", first)
+	}
+	if got := r.Restore(first); got != "key sk-abcdef" {
+		t.Fatalf("restored = %q", got)
 	}
 }
 
@@ -220,34 +212,5 @@ func TestRecordsHits(t *testing.T) {
 	}
 	if hits[0].RuleID != "api-key" || hits[0].Original == "" || hits[0].Replacement == hits[0].Original {
 		t.Fatalf("hit = %+v", hits[0])
-	}
-}
-
-func TestReplacementBackreferences(t *testing.T) {
-	rules := []config.RedactRule{{ID: "api-key", Pattern: config.APIKeyRedactPattern, Replacement: "$1***", Enabled: true}}
-	r := CompileWithSecret(rules, []byte("secret"))
-	masked := r.MaskText("key sk-abcdef")
-	if !strings.HasPrefix(masked, "key sk-") || strings.Contains(masked, "*") || len(masked) != len("key sk-abcdef") {
-		t.Fatalf("masked = %q, want a same-length sk- mask", masked)
-	}
-	if got := r.Restore(masked); got != "key sk-abcdef" {
-		t.Fatalf("restored = %q", got)
-	}
-
-	literal := CompileWithSecret([]config.RedactRule{{
-		ID: "api-key", Pattern: config.APIKeyRedactPattern, Replacement: "${1}[REDACTED]", Enabled: true,
-	}}, []byte("secret"))
-	if got := literal.MaskText("key sk-abcdef"); got != "key sk-[REDACTED]" {
-		t.Fatalf("literal masked = %q", got)
-	}
-	if got := literal.Restore(literal.MaskText("key sk-abcdef")); got != "key sk-abcdef" {
-		t.Fatalf("literal restored = %q", got)
-	}
-
-	dollar := CompileWithSecret([]config.RedactRule{{
-		ID: "api-key", Pattern: config.APIKeyRedactPattern, Replacement: "$$1", Enabled: true,
-	}}, []byte("secret"))
-	if got := dollar.MaskText("key sk-abcdef"); got != "key $1" {
-		t.Fatalf("dollar masked = %q", got)
 	}
 }

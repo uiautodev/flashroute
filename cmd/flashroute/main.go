@@ -51,6 +51,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
+	srv.SetGatewayEndpoint("http://" + displayAddr(ln.Addr().String()))
 	httpServer := &http.Server{
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 15 * time.Second,
