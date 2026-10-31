@@ -13,6 +13,8 @@
 	let showModal = false;
 	let name = '';
 	let creating = false;
+	let gatewayEndpoint = '';
+	let allowLocalNoKey = true;
 
 	onMount(load);
 
@@ -20,12 +22,27 @@
 		loading = true;
 		error = '';
 		try {
-			const data = await api.get('/api/keys');
+			const [data, status] = await Promise.all([api.get('/api/keys'), api.get('/api/auth/status')]);
 			keys = data.keys || [];
+			allowLocalNoKey = data.allow_local_no_key !== false;
+			gatewayEndpoint = status.gateway_endpoint || '';
 		} catch (err) {
 			error = err.message;
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function toggleLocalNoKey() {
+		const next = !allowLocalNoKey;
+		allowLocalNoKey = next;
+		try {
+			const data = await api.post('/api/keys/local-no-key', { enabled: next });
+			allowLocalNoKey = data.allow_local_no_key !== false;
+			toast($t('common.save'), 'success');
+		} catch (err) {
+			allowLocalNoKey = !next;
+			toast(err.message, 'error');
 		}
 	}
 
@@ -66,7 +83,7 @@
 		return key.slice(0, 6) + '****' + key.slice(-4);
 	}
 
-	$: endpoint = typeof location !== 'undefined' ? location.origin + '/v1' : '/v1';
+	$: endpoint = gatewayEndpoint ? gatewayEndpoint.replace(/\/$/, '') + '/v1' : typeof location !== 'undefined' ? location.origin + '/v1' : '/v1';
 	$: example = `curl ${endpoint}/chat/completions \\\n  -H "Authorization: Bearer $FLASHROUTE_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"grounder","messages":[{"role":"user","content":"hello"}]}'`;
 	$: tsExample = `import OpenAI from 'openai';
 
@@ -149,6 +166,13 @@ print(res.choices[0].message.content)`;
 				<h2>{$t('keys.usageTitle')}</h2>
 				<p>{$t('keys.usageHint')}</p>
 			</div>
+		</div>
+		<div class="local-key-toggle">
+			<div>
+				<span class="switch-label">{$t('keys.allowLocalNoKey')}</span>
+				<span class="hint">{$t('keys.allowLocalNoKeyHint')}</span>
+			</div>
+			<button class="switch" class:on={allowLocalNoKey} onclick={toggleLocalNoKey} aria-label={$t('keys.allowLocalNoKey')} aria-pressed={allowLocalNoKey}></button>
 		</div>
 		<div class="field">
 			<span class="field-label">{$t('keys.endpoint')}</span>
@@ -240,7 +264,7 @@ print(res.choices[0].message.content)`;
 		place-items: center;
 		background: var(--accent-soft);
 		color: var(--accent);
-		border: 1px solid rgba(52, 211, 153, 0.14);
+		border: 1px solid var(--accent-border-soft);
 	}
 	.key-name {
 		font-size: 13px;
@@ -279,6 +303,22 @@ print(res.choices[0].message.content)`;
 		gap: 17px;
 		position: sticky;
 		top: 90px;
+	}
+	.local-key-toggle {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 10px 12px;
+		margin-bottom: 14px;
+		border: 1px solid var(--line-soft);
+		border-radius: 9px;
+		background: var(--surface-inset);
+	}
+	.local-key-toggle > div {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
 	}
 	.usage-head {
 		display: flex;

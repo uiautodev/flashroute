@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/uiautodev/flashroute/internal/config"
+	"github.com/uiautodev/flashroute/internal/redact"
 	"gopkg.in/yaml.v3"
 	_ "modernc.org/sqlite"
 )
@@ -32,14 +34,29 @@ CREATE TABLE IF NOT EXISTS messages (
 	images TEXT NOT NULL DEFAULT '[]',
 	model TEXT NOT NULL DEFAULT '',
 	provider TEXT NOT NULL DEFAULT '',
+	redacted INTEGER NOT NULL DEFAULT 0,
+	tools TEXT NOT NULL DEFAULT '[]',
 	created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id);
 CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(chat_id, parent_id);
+CREATE TABLE IF NOT EXISTS redactions (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	rule_id TEXT NOT NULL,
+	rule_name TEXT NOT NULL DEFAULT '',
+	original TEXT NOT NULL,
+	replacement TEXT NOT NULL,
+	created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_redactions_rule ON redactions(rule_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_redactions_created ON redactions(created_at);
 `
 
 func (s *Store) initChats() error {
-	db, err := sql.Open("sqlite", filepath.Join(s.dir, "chats.db"))
+	if err := s.migrateChatDBName(); err != nil {
+		return err
+	}
+	db, err := sql.Open("sqlite", filepath.Join(s.dir, "flashroute.db"))
 	if err != nil {
 		return err
 	}
@@ -48,11 +65,56 @@ func (s *Store) initChats() error {
 	if _, err := db.Exec(chatSchema); err != nil {
 		return fmt.Errorf("init chat database: %w", err)
 	}
-	return s.migrateLegacyChats()
+	if err := ensureMessageColumn(db, "redacted", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return fmt.Errorf("migrate chat database: %w", err)
+	}
+	if err := ensureMessageColumn(db, "tools", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
+		return fmt.Errorf("migrate chat database: %w", err)
+	}
+	if err := s.migrateLegacyChats(); err != nil {
+		return err
+	}
+	return s.pruneRedactions()
+}
+
+func (s *Store) migrateChatDBName() error {
+	newPath := filepath.Join(s.dir, "flashroute.db")
+	if _, err := os.Stat(newPath); err == nil {
+		return nil
+	}
+	oldPath := filepath.Join(s.dir, "chats.db")
+	if _, err := os.Stat(oldPath); err != nil {
+		return nil
+	}
+	return os.Rename(oldPath, newPath)
+}
+
+func ensureMessageColumn(db *sql.DB, name, definition string) error {
+	rows, err := db.Query(`PRAGMA table_info(messages)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var columnName, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &columnName, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return err
+		}
+		if columnName == name {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = db.Exec(fmt.Sprintf("ALTER TABLE messages ADD COLUMN %s %s", name, definition))
+	return err
 }
 
 func (s *Store) loadAllMessages(chatID string) ([]config.ChatMessage, error) {
-	rows, err := s.db.Query(`SELECT id, parent_id, role, content, reasoning, images, model, provider, created_at
+	rows, err := s.db.Query(`SELECT id, parent_id, role, content, reasoning, images, model, provider, redacted, tools, created_at
 		FROM messages WHERE chat_id = ? ORDER BY created_at, rowid`, chatID)
 	if err != nil {
 		return nil, err
@@ -75,12 +137,13 @@ type messageScanner interface {
 
 func scanMessage(row messageScanner) (config.ChatMessage, error) {
 	var message config.ChatMessage
-	var images string
+	var images, tools string
 	if err := row.Scan(&message.ID, &message.ParentID, &message.Role, &message.Content, &message.Reasoning,
-		&images, &message.Model, &message.Provider, &message.CreatedAt); err != nil {
+		&images, &message.Model, &message.Provider, &message.Redacted, &tools, &message.CreatedAt); err != nil {
 		return message, err
 	}
 	_ = json.Unmarshal([]byte(images), &message.Images)
+	_ = json.Unmarshal([]byte(tools), &message.Tools)
 	return message, nil
 }
 
@@ -195,11 +258,12 @@ func (s *Store) InsertMessage(chatID string, message config.ChatMessage) error {
 	s.chatMu.Lock()
 	defer s.chatMu.Unlock()
 	images, _ := json.Marshal(message.Images)
+	tools, _ := json.Marshal(message.Tools)
 	_, err := s.db.Exec(`INSERT INTO messages
-		(id, chat_id, parent_id, role, content, reasoning, images, model, provider, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(id, chat_id, parent_id, role, content, reasoning, images, model, provider, redacted, tools, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		message.ID, chatID, message.ParentID, message.Role, message.Content, message.Reasoning,
-		string(images), message.Model, message.Provider, message.CreatedAt)
+		string(images), message.Model, message.Provider, message.Redacted, string(tools), message.CreatedAt)
 	return err
 }
 
@@ -228,7 +292,7 @@ func (s *Store) Message(chatID, messageID string) (config.ChatMessage, bool) {
 }
 
 func (s *Store) messageLocked(chatID, messageID string) (config.ChatMessage, bool) {
-	row := s.db.QueryRow(`SELECT id, parent_id, role, content, reasoning, images, model, provider, created_at
+	row := s.db.QueryRow(`SELECT id, parent_id, role, content, reasoning, images, model, provider, redacted, tools, created_at
 		FROM messages WHERE chat_id = ? AND id = ?`, chatID, messageID)
 	message, err := scanMessage(row)
 	if err != nil {
@@ -238,7 +302,7 @@ func (s *Store) messageLocked(chatID, messageID string) (config.ChatMessage, boo
 }
 
 func (s *Store) siblingsLocked(chatID, parentID, role string) []config.ChatMessage {
-	rows, err := s.db.Query(`SELECT id, parent_id, role, content, reasoning, images, model, provider, created_at
+	rows, err := s.db.Query(`SELECT id, parent_id, role, content, reasoning, images, model, provider, redacted, tools, created_at
 		FROM messages WHERE chat_id = ? AND parent_id = ? AND role = ?
 		ORDER BY created_at, rowid`, chatID, parentID, role)
 	if err != nil {
@@ -330,6 +394,33 @@ func (s *Store) DeleteChat(id string) ([]string, error) {
 	return images, nil
 }
 
+func (s *Store) DeleteAllChats() ([]string, error) {
+	s.chatMu.Lock()
+	defer s.chatMu.Unlock()
+	rows, err := s.db.Query(`SELECT images FROM messages`)
+	if err != nil {
+		return nil, err
+	}
+	var images []string
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			continue
+		}
+		var list []string
+		_ = json.Unmarshal([]byte(raw), &list)
+		images = append(images, list...)
+	}
+	rows.Close()
+	if _, err := s.db.Exec(`DELETE FROM chats`); err != nil {
+		return nil, err
+	}
+	if _, err := s.db.Exec(`DELETE FROM messages`); err != nil {
+		return nil, err
+	}
+	return images, nil
+}
+
 type legacyChatStore struct {
 	Chats []struct {
 		ID        string               `yaml:"id"`
@@ -394,4 +485,103 @@ func (s *Store) migrateLegacyChats() error {
 	}
 	_ = os.Rename(path, path+".migrated")
 	return nil
+}
+
+type RedactionRecord struct {
+	ID          int64  `json:"id"`
+	RuleID      string `json:"rule_id"`
+	RuleName    string `json:"rule_name"`
+	Original    string `json:"original"`
+	Replacement string `json:"replacement"`
+	CreatedAt   string `json:"created_at"`
+}
+
+func (s *Store) RecordRedactions(hits []redact.Hit) {
+	if len(hits) == 0 {
+		return
+	}
+	s.chatMu.Lock()
+	defer s.chatMu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return
+	}
+	now := config.Now()
+	for _, hit := range hits {
+		if _, err := tx.Exec(`INSERT INTO redactions (rule_id, rule_name, original, replacement, created_at)
+			VALUES (?, ?, ?, ?, ?)`,
+			hit.RuleID, hit.RuleName, hit.Original, hit.Replacement, now); err != nil {
+			_ = tx.Rollback()
+			return
+		}
+	}
+	_, _ = tx.Exec(`DELETE FROM redactions WHERE created_at < ?`, redactionCutoff())
+	_ = tx.Commit()
+}
+
+func (s *Store) RedactionCounts() map[string]int64 {
+	s.chatMu.Lock()
+	defer s.chatMu.Unlock()
+	rows, err := s.db.Query(`SELECT rule_id, count(*) FROM redactions WHERE created_at >= ? GROUP BY rule_id`, redactionCutoff())
+	if err != nil {
+		return map[string]int64{}
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var id string
+		var count int64
+		if err := rows.Scan(&id, &count); err == nil {
+			out[id] = count
+		}
+	}
+	return out
+}
+
+func (s *Store) RedactionRecords(ruleID string, limit int) []RedactionRecord {
+	s.chatMu.Lock()
+	defer s.chatMu.Unlock()
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	query := `SELECT id, rule_id, rule_name, original, replacement, created_at
+		FROM redactions WHERE created_at >= ?`
+	args := []any{redactionCutoff()}
+	if ruleID != "" {
+		query += ` AND rule_id = ?`
+		args = append(args, ruleID)
+	}
+	query += ` ORDER BY id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []RedactionRecord
+	for rows.Next() {
+		var item RedactionRecord
+		if err := rows.Scan(&item.ID, &item.RuleID, &item.RuleName, &item.Original, &item.Replacement, &item.CreatedAt); err == nil {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func (s *Store) ClearRedactions() error {
+	s.chatMu.Lock()
+	defer s.chatMu.Unlock()
+	_, err := s.db.Exec(`DELETE FROM redactions`)
+	return err
+}
+
+func (s *Store) pruneRedactions() error {
+	s.chatMu.Lock()
+	defer s.chatMu.Unlock()
+	_, err := s.db.Exec(`DELETE FROM redactions WHERE created_at < ?`, redactionCutoff())
+	return err
+}
+
+func redactionCutoff() string {
+	return time.Now().AddDate(0, 0, -30).Format(time.RFC3339)
 }

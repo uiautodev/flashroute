@@ -13,6 +13,7 @@ func (s *Server) handleGetRedactRules(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled": s.store.RedactionEnabled(),
 		"rules":   s.store.RedactRules(),
+		"counts":  s.store.RedactionCounts(),
 	})
 }
 
@@ -53,7 +54,40 @@ func (s *Server) handleSaveRedactRules(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled": s.store.RedactionEnabled(),
 		"rules":   s.store.RedactRules(),
+		"counts":  s.store.RedactionCounts(),
 	})
+}
+
+func (s *Server) handleResetRedactRules(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.SetRedactRules(config.DefaultRedactRules()); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.store.SetRedactionEnabled(true); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enabled": s.store.RedactionEnabled(),
+		"rules":   s.store.RedactRules(),
+		"counts":  s.store.RedactionCounts(),
+	})
+}
+
+func (s *Server) handleRedactionRecords(w http.ResponseWriter, r *http.Request) {
+	ruleID := strings.TrimSpace(r.URL.Query().Get("rule_id"))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"records": s.store.RedactionRecords(ruleID, 100),
+		"counts":  s.store.RedactionCounts(),
+	})
+}
+
+func (s *Server) handleClearRedactionRecords(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.ClearRedactions(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleTestRedactRules(w http.ResponseWriter, r *http.Request) {

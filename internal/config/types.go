@@ -8,41 +8,289 @@ type Config struct {
 	Providers     []Provider   `yaml:"providers" json:"providers"`
 	Routes        []Route      `yaml:"routes" json:"routes"`
 	APIKeys       []APIKey     `yaml:"api_keys" json:"api_keys"`
+	DesktopPort   int          `yaml:"desktop_port,omitempty" json:"-"`
+	LocalNoKey    *bool        `yaml:"local_no_key,omitempty" json:"-"`
 	RedactEnabled *bool        `yaml:"redact_enabled,omitempty" json:"redact_enabled,omitempty"`
 	RedactRules   []RedactRule `yaml:"redact_rules,omitempty" json:"redact_rules"`
 }
 
 type RedactRule struct {
-	ID      string `yaml:"id" json:"id"`
-	Name    string `yaml:"name,omitempty" json:"name"`
-	Pattern string `yaml:"pattern" json:"pattern"`
-	Enabled bool   `yaml:"enabled" json:"enabled"`
+	ID          string `yaml:"id" json:"id"`
+	Name        string `yaml:"name,omitempty" json:"name"`
+	Group       string `yaml:"group,omitempty" json:"group,omitempty"`
+	Pattern     string `yaml:"pattern" json:"pattern"`
+	Replacement string `yaml:"replacement,omitempty" json:"replacement,omitempty"`
+	Enabled     bool   `yaml:"enabled" json:"enabled"`
 }
 
 const (
-	BearerRedactPattern       = `(?i)\b(Bearer\s+)([A-Za-z0-9._~+/=-]{16,})`
-	LegacyBearerRedactPattern = `(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{16,}`
+	APIKeyRedactPattern           = `\b(sk-)[A-Za-z0-9_-]{6,}`
+	LegacyAPIKeyRedactPattern     = `\bsk-[A-Za-z0-9_-]{6,}`
+	BearerRedactPattern           = `(?i)\b(Bearer\s+)([A-Za-z0-9._~+/=-]{16,})`
+	LegacyBearerRedactPattern     = `(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{16,}`
+	PrivateKeyRedactPattern       = `(?s)(-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----).*?(-----END (?:[A-Z]+ )?PRIVATE KEY-----)`
+	LegacyPrivateKeyRedactPattern = `(?s)-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----.*?-----END (?:[A-Z]+ )?PRIVATE KEY-----`
+	EmailRedactPattern            = `\b([A-Za-z0-9._%+\-]+)(@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b`
+	LegacyEmailRedactPattern      = `\b()([A-Za-z0-9._%+\-]+)(@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b`
 )
 
 func DefaultRedactRules() []RedactRule {
 	return []RedactRule{
 		{
-			ID:      "api-key",
-			Name:    "API keys",
-			Pattern: `\bsk-[A-Za-z0-9_-]{6,}`,
-			Enabled: true,
+			ID:          "api-key",
+			Name:        "API keys",
+			Group:       "keys",
+			Pattern:     APIKeyRedactPattern,
+			Replacement: "sk-***",
+			Enabled:     true,
 		},
 		{
-			ID:      "bearer-token",
-			Name:    "Bearer tokens",
-			Pattern: `(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{16,}`,
-			Enabled: true,
+			ID:          "bearer-token",
+			Name:        "Bearer tokens",
+			Group:       "keys",
+			Pattern:     BearerRedactPattern,
+			Replacement: "$1***",
+			Enabled:     true,
 		},
 		{
-			ID:      "private-key",
-			Name:    "Private keys",
-			Pattern: `(?s)-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----.*?-----END (?:[A-Z]+ )?PRIVATE KEY-----`,
-			Enabled: true,
+			ID:          "email",
+			Name:        "Email addresses",
+			Group:       "identity",
+			Pattern:     EmailRedactPattern,
+			Replacement: "***$2",
+			Enabled:     true,
+		},
+		{
+			ID:          "phone-number",
+			Name:        "Mobile phone numbers",
+			Group:       "identity",
+			Pattern:     `\b1[3-9][0-9]{9}\b`,
+			Replacement: "***",
+			Enabled:     true,
+		},
+		{
+			ID:          "cn-id-card",
+			Name:        "Chinese ID cards",
+			Group:       "identity",
+			Pattern:     `\b(?:[1-9][0-9]{16}[0-9Xx]|[1-9][0-9]{14})\b`,
+			Replacement: "***",
+			Enabled:     true,
+		},
+		{
+			ID:          "passport-number",
+			Name:        "Passport numbers",
+			Group:       "identity",
+			Pattern:     `\b[EG][0-9]{8}\b`,
+			Replacement: "***",
+			Enabled:     true,
+		},
+		{
+			ID:          "us-ssn",
+			Name:        "US SSN",
+			Group:       "identity",
+			Pattern:     `\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b`,
+			Replacement: "***",
+			Enabled:     true,
+		},
+		{
+			ID:          "ipv4-address",
+			Name:        "IPv4 addresses",
+			Group:       "identity",
+			Pattern:     `\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`,
+			Replacement: "***",
+			Enabled:     true,
+		},
+		{
+			ID:          "mac-address",
+			Name:        "MAC addresses",
+			Group:       "identity",
+			Pattern:     `\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b`,
+			Replacement: "***",
+			Enabled:     true,
+		},
+		{
+			ID:          "private-key",
+			Name:        "Private keys",
+			Group:       "keys",
+			Pattern:     PrivateKeyRedactPattern,
+			Replacement: "$1***$2",
+			Enabled:     true,
+		},
+		{
+			ID:          "aws-access-key",
+			Name:        "AWS access keys",
+			Group:       "keys",
+			Pattern:     `\b(AKIA|ASIA|AIDA|AROA|AIPA|ANPA|ANVA|APKA)[A-Z0-9]{16}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "github-token",
+			Name:        "GitHub tokens",
+			Group:       "keys",
+			Pattern:     `\b(gh[pousr]_|github_pat_)[A-Za-z0-9_]{20,}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "gitlab-token",
+			Name:        "GitLab tokens",
+			Group:       "keys",
+			Pattern:     `\b(glpat-)[A-Za-z0-9_-]{20,}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "slack-token",
+			Name:        "Slack tokens",
+			Group:       "keys",
+			Pattern:     `\b(xox[baprs]-)[A-Za-z0-9-]{10,}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "google-api-key",
+			Name:        "Google API keys",
+			Group:       "keys",
+			Pattern:     `\b(AIza)[0-9A-Za-z_-]{35}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "google-oauth-token",
+			Name:        "Google OAuth tokens",
+			Group:       "keys",
+			Pattern:     `\b(ya29\.)[A-Za-z0-9_-]{20,}`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "stripe-key",
+			Name:        "Stripe secret keys",
+			Group:       "keys",
+			Pattern:     `\b((?:sk|rk)_(?:live|test)_)[A-Za-z0-9]{16,}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "stripe-webhook",
+			Name:        "Stripe webhook secrets",
+			Group:       "keys",
+			Pattern:     `\b(whsec_)[A-Za-z0-9]{20,}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "npm-token",
+			Name:        "npm tokens",
+			Group:       "keys",
+			Pattern:     `\b(npm_)[A-Za-z0-9]{36,}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "pypi-token",
+			Name:        "PyPI tokens",
+			Group:       "keys",
+			Pattern:     `\b(pypi-)[A-Za-z0-9_-]{50,}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "huggingface-token",
+			Name:        "Hugging Face tokens",
+			Group:       "keys",
+			Pattern:     `\b(hf_)[A-Za-z0-9]{30,}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "digitalocean-token",
+			Name:        "DigitalOcean tokens",
+			Group:       "keys",
+			Pattern:     `\b(dop_v1_)[a-f0-9]{64}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "shopify-token",
+			Name:        "Shopify tokens",
+			Group:       "keys",
+			Pattern:     `\b(shpat_)[a-fA-F0-9]{32}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "sendgrid-key",
+			Name:        "SendGrid keys",
+			Group:       "keys",
+			Pattern:     `\b(SG\.)[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "mailgun-key",
+			Name:        "Mailgun keys",
+			Group:       "keys",
+			Pattern:     `\b(key-)[a-z0-9]{32}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "twilio-key",
+			Name:        "Twilio keys",
+			Group:       "keys",
+			Pattern:     `\b(SK)[0-9a-fA-F]{32}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "age-secret-key",
+			Name:        "age secret keys",
+			Group:       "keys",
+			Pattern:     `\b(AGE-SECRET-KEY-1)[0-9A-Z]{58}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "jwt",
+			Name:        "JSON Web Tokens",
+			Group:       "keys",
+			Pattern:     `\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`,
+			Replacement: "***",
+			Enabled:     true,
+		},
+		{
+			ID:          "basic-auth",
+			Name:        "Basic auth",
+			Group:       "keys",
+			Pattern:     `(?i)\b(Basic\s+)[A-Za-z0-9+/=]{8,}`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "pgp-private-key",
+			Name:        "PGP private keys",
+			Group:       "keys",
+			Pattern:     `(?s)(-----BEGIN PGP PRIVATE KEY BLOCK-----).*?(-----END PGP PRIVATE KEY BLOCK-----)`,
+			Replacement: "$1***$2",
+			Enabled:     true,
+		},
+		{
+			ID:          "telegram-bot-token",
+			Name:        "Telegram bot tokens",
+			Group:       "keys",
+			Pattern:     `\b([0-9]{8,10}:)[A-Za-z0-9_-]{35}\b`,
+			Replacement: "$1***",
+			Enabled:     true,
+		},
+		{
+			ID:          "discord-token",
+			Name:        "Discord bot tokens",
+			Group:       "keys",
+			Pattern:     `\b[MN][A-Za-z0-9_-]{23,25}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,38}\b`,
+			Replacement: "***",
+			Enabled:     true,
 		},
 	}
 }
@@ -142,6 +390,8 @@ type ChatMessage struct {
 	Images       []string `yaml:"images,omitempty" json:"images,omitempty"`
 	Model        string   `yaml:"model,omitempty" json:"model,omitempty"`
 	Provider     string   `yaml:"provider,omitempty" json:"provider,omitempty"`
+	Tools        []string `yaml:"-" json:"tools,omitempty"`
+	Redacted     bool     `yaml:"-" json:"redacted,omitempty"`
 	VersionIndex int      `yaml:"-" json:"version_index,omitempty"`
 	VersionCount int      `yaml:"-" json:"version_count,omitempty"`
 	CreatedAt    string   `yaml:"created_at" json:"created_at"`

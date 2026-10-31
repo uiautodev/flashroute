@@ -15,7 +15,24 @@ func (s *Server) handleListKeys(w http.ResponseWriter, r *http.Request) {
 	if cfg.APIKeys == nil {
 		cfg.APIKeys = []config.APIKey{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"keys": cfg.APIKeys})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"keys":               cfg.APIKeys,
+		"allow_local_no_key": s.store.LocalNoKeyEnabled(),
+	})
+}
+
+func (s *Server) handleSetLocalNoKey(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if err := s.store.SetLocalNoKey(body.Enabled); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"allow_local_no_key": s.store.LocalNoKeyEnabled()})
 }
 
 func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {

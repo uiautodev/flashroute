@@ -11,11 +11,13 @@ import (
 )
 
 func (g *Gateway) redactMessages(obj map[string]json.RawMessage) *redact.Redactor {
-	redactor := redact.Compile(nil)
-	if g.Store.RedactionEnabled() {
-		redactor = redact.Compile(g.Store.RedactRules())
-		redactor.Messages(obj)
+	if !g.Store.RedactionEnabled() {
+		return redact.Compile(nil)
 	}
+	redactor := redact.CompileWithSecret(g.Store.RedactRules(), g.Store.SessionSecret())
+	redactor.StartRecording()
+	redactor.Messages(obj)
+	g.Store.RecordRedactions(redactor.Hits())
 	return redactor
 }
 

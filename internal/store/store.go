@@ -21,6 +21,8 @@ var (
 	ErrConflict = errors.New("already exists")
 )
 
+const DefaultDesktopPort = 11211
+
 type Store struct {
 	dir string
 
@@ -50,7 +52,7 @@ func New(dir string) (*Store, error) {
 	firstRun := false
 	if _, err := os.Stat(s.configPath()); errors.Is(err, os.ErrNotExist) {
 		firstRun = true
-		s.cfg = config.Config{Version: 1}
+		s.cfg = config.Config{Version: 8}
 		if err := s.saveConfigLocked(); err != nil {
 			return nil, err
 		}
@@ -69,6 +71,11 @@ func New(dir string) (*Store, error) {
 		s.cfg.Auth.SessionSecret = randomToken(32)
 		changed = true
 	}
+	if s.cfg.LocalNoKey == nil {
+		enabled := true
+		s.cfg.LocalNoKey = &enabled
+		changed = true
+	}
 	if s.cfg.RedactEnabled == nil {
 		enabled := true
 		s.cfg.RedactEnabled = &enabled
@@ -78,11 +85,110 @@ func New(dir string) (*Store, error) {
 		s.cfg.RedactRules = config.DefaultRedactRules()
 		changed = true
 	}
+	if s.cfg.DesktopPort == 0 {
+		s.cfg.DesktopPort = DefaultDesktopPort
+		changed = true
+	}
 	for i := range s.cfg.RedactRules {
-		if s.cfg.RedactRules[i].ID == "bearer-token" && s.cfg.RedactRules[i].Pattern == config.LegacyBearerRedactPattern {
+		switch {
+		case s.cfg.RedactRules[i].ID == "api-key" && s.cfg.RedactRules[i].Pattern == config.LegacyAPIKeyRedactPattern:
+			s.cfg.RedactRules[i].Pattern = config.APIKeyRedactPattern
+			changed = true
+		case s.cfg.RedactRules[i].ID == "bearer-token" && s.cfg.RedactRules[i].Pattern == config.LegacyBearerRedactPattern:
 			s.cfg.RedactRules[i].Pattern = config.BearerRedactPattern
 			changed = true
+		case s.cfg.RedactRules[i].ID == "private-key" && s.cfg.RedactRules[i].Pattern == config.LegacyPrivateKeyRedactPattern:
+			s.cfg.RedactRules[i].Pattern = config.PrivateKeyRedactPattern
+			changed = true
 		}
+	}
+	if s.cfg.Version < 2 {
+		if _, ok := findRedactRule(s.cfg.RedactRules, "email"); !ok {
+			for _, rule := range config.DefaultRedactRules() {
+				if rule.ID == "email" {
+					s.cfg.RedactRules = append(s.cfg.RedactRules, rule)
+					break
+				}
+			}
+		}
+		s.cfg.Version = 2
+		changed = true
+	}
+	if s.cfg.Version < 3 {
+		for i := range s.cfg.RedactRules {
+			if s.cfg.RedactRules[i].ID == "api-key" && strings.TrimSpace(s.cfg.RedactRules[i].Replacement) == "" {
+				s.cfg.RedactRules[i].Replacement = "***"
+				changed = true
+			}
+		}
+		s.cfg.Version = 3
+		changed = true
+	}
+	if s.cfg.Version < 4 {
+		for i := range s.cfg.RedactRules {
+			if strings.TrimSpace(s.cfg.RedactRules[i].Group) != "" {
+				continue
+			}
+			switch s.cfg.RedactRules[i].ID {
+			case "api-key", "bearer-token", "private-key":
+				s.cfg.RedactRules[i].Group = "keys"
+			case "email":
+				s.cfg.RedactRules[i].Group = "identity"
+			}
+			changed = true
+		}
+		s.cfg.Version = 4
+		changed = true
+	}
+	if s.cfg.Version < 5 {
+		for i := range s.cfg.RedactRules {
+			replacement := strings.TrimSpace(s.cfg.RedactRules[i].Replacement)
+			if s.cfg.RedactRules[i].ID == "api-key" && (replacement == "" || strings.Trim(replacement, "*") == "") {
+				s.cfg.RedactRules[i].Replacement = "sk-***"
+				changed = true
+			}
+		}
+		s.cfg.Version = 5
+		changed = true
+	}
+	if s.cfg.Version < 6 {
+		for i := range s.cfg.RedactRules {
+			rule := &s.cfg.RedactRules[i]
+			if strings.TrimSpace(rule.Replacement) != "" {
+				continue
+			}
+			switch rule.ID {
+			case "bearer-token":
+				rule.Replacement = "$1***"
+				changed = true
+			case "email":
+				rule.Pattern = config.EmailRedactPattern
+				rule.Replacement = "***$2"
+				changed = true
+			case "private-key":
+				rule.Replacement = "$1***$2"
+				changed = true
+			}
+		}
+		for i := range s.cfg.RedactRules {
+			if s.cfg.RedactRules[i].ID == "email" && s.cfg.RedactRules[i].Pattern == config.LegacyEmailRedactPattern {
+				s.cfg.RedactRules[i].Pattern = config.EmailRedactPattern
+				changed = true
+			}
+		}
+		s.cfg.Version = 6
+		changed = true
+	}
+	if s.cfg.Version < 8 {
+		for _, rule := range config.DefaultRedactRules() {
+			if _, ok := findRedactRule(s.cfg.RedactRules, rule.ID); ok {
+				continue
+			}
+			s.cfg.RedactRules = append(s.cfg.RedactRules, rule)
+			changed = true
+		}
+		s.cfg.Version = 8
+		changed = true
 	}
 	if firstRun && len(s.cfg.APIKeys) == 0 {
 		s.cfg.APIKeys = append(s.cfg.APIKeys, config.APIKey{
@@ -489,6 +595,19 @@ func (s *Store) RedactRules() []config.RedactRule {
 	return append([]config.RedactRule(nil), s.cfg.RedactRules...)
 }
 
+func (s *Store) LocalNoKeyEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg.LocalNoKey == nil || *s.cfg.LocalNoKey
+}
+
+func (s *Store) SetLocalNoKey(enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.LocalNoKey = &enabled
+	return s.saveConfigLocked()
+}
+
 func (s *Store) RedactionEnabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -526,6 +645,25 @@ func (s *Store) SetPasswordHash(hash string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cfg.Auth.PasswordHash = hash
+	return s.saveConfigLocked()
+}
+
+func (s *Store) DesktopPort() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.cfg.DesktopPort == 0 {
+		return DefaultDesktopPort
+	}
+	return s.cfg.DesktopPort
+}
+
+func (s *Store) SetDesktopPort(port int) error {
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.DesktopPort = port
 	return s.saveConfigLocked()
 }
 
@@ -628,4 +766,13 @@ func randomToken(n int) string {
 		panic(err)
 	}
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func findRedactRule(rules []config.RedactRule, id string) (config.RedactRule, bool) {
+	for _, rule := range rules {
+		if rule.ID == id {
+			return rule, true
+		}
+	}
+	return config.RedactRule{}, false
 }

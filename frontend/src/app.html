@@ -14,6 +14,9 @@
 					? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
 					: mode;
 				document.documentElement.dataset.theme = resolved;
+				const accents = ['green', 'blue', 'violet', 'amber', 'rose'];
+				const accent = localStorage.getItem('flashroute.accent');
+				document.documentElement.dataset.accent = accents.includes(accent) ? accent : 'green';
 				document.documentElement.style.colorScheme = resolved;
 				const meta = document.querySelector('meta[name="theme-color"]');
 				if (meta) meta.setAttribute('content', resolved === 'dark' ? '#070b10' : '#f4f7fb');

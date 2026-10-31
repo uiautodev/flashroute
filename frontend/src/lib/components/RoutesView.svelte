@@ -406,7 +406,7 @@
 		font-weight: 700;
 		color: var(--accent);
 		background: var(--accent-soft);
-		border: 1px solid rgba(52, 211, 153, 0.15);
+		border: 1px solid var(--accent-border-soft);
 		border-radius: 7px;
 		padding: 3px 8px;
 	}
@@ -522,7 +522,7 @@
 		align-items: flex-start;
 		gap: 9px;
 		padding: 10px 12px;
-		border: 1px solid rgba(52, 211, 153, 0.2);
+		border: 1px solid var(--accent-border);
 		background: var(--accent-soft);
 		color: var(--accent);
 		border-radius: 9px;

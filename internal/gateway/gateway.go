@@ -192,10 +192,22 @@ func (g *Gateway) Execute(ctx context.Context, model string, payload []byte, rec
 			if redactor.HasMappings() {
 				if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
 					resp.Body = restoreSSEBody(resp.Body, redactor)
+					resp.ContentLength = -1
 				} else {
-					resp.Body = io.NopCloser(redactor.RestoreReader(resp.Body))
+					body, readErr := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+					resp.Body.Close()
+					if readErr != nil {
+						resp = errorResponse(http.StatusBadGateway, readErr.Error())
+					} else {
+						if restored, ok := redactor.RestoreJSON(body); ok {
+							body = restored
+						} else {
+							body = []byte(redactor.Restore(string(body)))
+						}
+						resp.Body = io.NopCloser(bytes.NewReader(body))
+						resp.ContentLength = int64(len(body))
+					}
 				}
-				resp.ContentLength = -1
 			}
 			return &ProxyResponse{Response: resp, Model: target.Model, Alias: alias, Provider: target.Provider, Attempts: attempts}, nil
 		}

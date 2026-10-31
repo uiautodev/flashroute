@@ -2,7 +2,7 @@
 	import { api } from '#lib/api.js';
 	import { lang, t } from '#lib/i18n.js';
 	import { toast } from '#lib/toast.js';
-	import { themeChoices, themeMode } from '#lib/theme.js';
+	import { accentChoices, accentTheme, themeChoices, themeMode } from '#lib/theme.js';
 	import Icon from './Icon.svelte';
 	import CopyButton from './CopyButton.svelte';
 
@@ -39,6 +39,21 @@
 			toast(err.message, 'error');
 		} finally {
 			saving = false;
+		}
+	}
+
+	let desktopPort = status.desktop_port || 11211;
+	let savingPort = false;
+
+	async function saveDesktopPort() {
+		savingPort = true;
+		try {
+			await api.post('/api/settings/desktop-port', { port: Number(desktopPort) });
+			toast($t('settings.desktopPortSaved'), 'success');
+		} catch (err) {
+			toast(err.message, 'error');
+		} finally {
+			savingPort = false;
 		}
 	}
 
@@ -161,6 +176,16 @@
 					<CopyButton value={endpoint} />
 				</span>
 			</dd>
+			{#if status.desktop}
+				<dt>{$t('settings.desktopPort')}</dt>
+				<dd>
+					<div class="row" style="gap:6px">
+						<input class="input mono" style="max-width:110px" type="number" min="1" max="65535" bind:value={desktopPort} />
+						<button class="btn btn-sm" onclick={saveDesktopPort} disabled={savingPort}>{$t('common.save')}</button>
+					</div>
+					<span class="hint">{$t('settings.desktopPortHint')}</span>
+				</dd>
+			{/if}
 			<dt>{$t('settings.language')}</dt>
 			<dd>
 				<select class="select" style="max-width:190px" bind:value={$lang}>
@@ -193,6 +218,24 @@
 					{#if $themeMode === choice.id}<Icon name="check" size={14} />{/if}
 				</button>
 			{/each}
+		</div>
+		<div class="accent-block">
+			<span class="detail-label">{$t('theme.accent')}</span>
+			<div class="accent-options" role="group" aria-label={$t('theme.accent')}>
+				{#each accentChoices as choice}
+					<button
+						class="accent-option"
+						class:active={$accentTheme === choice.id}
+						onclick={() => accentTheme.set(choice.id)}
+						aria-pressed={$accentTheme === choice.id}
+						aria-label={$t(choice.label)}
+					>
+						<span class="accent-swatch" style={`background:${choice.color}`}></span>
+						<span class="accent-label">{$t(choice.label)}</span>
+						{#if $accentTheme === choice.id}<Icon name="check" size={13} />{/if}
+					</button>
+				{/each}
+			</div>
 		</div>
 	</section>
 
@@ -287,7 +330,7 @@
 		place-items: center;
 		background: var(--accent-soft);
 		color: var(--accent);
-		border: 1px solid rgba(52, 211, 153, 0.14);
+		border: 1px solid var(--accent-border-soft);
 		flex: none;
 	}
 	.section-head h2 {
@@ -425,9 +468,56 @@
 		color: var(--text);
 	}
 	.theme-option.active {
-		border-color: rgba(52, 211, 153, 0.4);
+		border-color: var(--accent);
 		background: var(--accent-soft);
 		color: var(--accent);
+	}
+	.accent-block {
+		display: flex;
+		flex-direction: column;
+		gap: 9px;
+		margin-top: 16px;
+	}
+	.accent-options {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+		gap: 9px;
+	}
+	.accent-option {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 9px 11px;
+		border: 1px solid var(--line);
+		border-radius: 9px;
+		background: var(--surface-inset);
+		color: var(--muted);
+		font-size: 11.5px;
+		font-weight: 600;
+		text-align: left;
+		transition:
+			background 0.15s ease,
+			border-color 0.15s ease,
+			color 0.15s ease;
+	}
+	.accent-option:hover {
+		background: var(--hover-tint);
+		color: var(--text);
+	}
+	.accent-option.active {
+		border-color: var(--accent);
+		background: var(--accent-soft);
+		color: var(--accent);
+	}
+	.accent-swatch {
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		flex: none;
+		box-shadow: 0 0 0 2px var(--badge-bg);
+	}
+	.accent-label {
+		flex: 1;
 	}
 	@media (max-width: 900px) {
 	.settings-grid {

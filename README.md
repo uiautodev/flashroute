@@ -17,15 +17,15 @@ English | [简体中文](README.zh-CN.md)
 - **API types**: Chat Completions, Responses or Anthropic Messages. Requests and streaming responses are converted automatically.
 - **Ordered route aliases**: for example `grounder` tries `ds/deepseek-flash`, then `aliyun/qwen3.8-27b`, falling back on 429, 5xx and network errors.
 - **Usage stats**: route request counts, success rate, per-target hit rate and 429 counts, persisted to YAML.
-- **Client keys**: generated with the `sk-fr-` prefix, masked by default in the UI and copyable with one click.
-- **Message redaction**: regex rules replace secrets in outbound messages before they reach a provider. The defaults cover API keys, Bearer tokens and private keys. Placeholders are reversible and restored in model replies; rules and the global switch live on the **Data redaction** page.
+- **Client keys**: generated with the `sk-fr-` prefix, masked by default in the UI and copyable with one click. Localhost requests can skip the gateway key by default; toggle this on the **API Keys** page.
+- **Message redaction**: regex rules replace secrets in outbound messages before they reach a provider. Matches become same-length random values, keeping punctuation, whitespace and PEM markers, so a key like `sk-123456` still looks like a key, private keys keep their shape and email addresses keep the domain after `@`. Everything is restored in model replies; chat messages with sensitive content get a **Safe** badge. Each rule can use a same-length mask placeholder such as `***`, a literal replacement, or capture-group backreferences such as `$1`; hit counts and the last 30 days of replacement records are available on the **Data redaction** page and can be cleared immediately. Rules and the global switch also live there.
 - **OpenAI-compatible gateway**: `/v1/models` and `/v1/chat/completions`, including `stream: true`.
-- **Chat UI**: streaming output, reasoning display, text + images, Markdown, one-click copy, privacy mode (never written to disk) and conversation history.
+- **Chat UI**: streaming output, reasoning toggle, text + images, Markdown, one-click copy, privacy mode (never written to disk), conversation history with delete/clear, and optional web search (on by default).
 - **Per-message versions**: editing a user message adds a user-message version; regenerating an assistant reply adds an assistant-reply version. Each message shows its own `current/total` selector. The version tree is stored in SQLite.
 - **Languages and themes**: Chinese / English, dark / light / follow system.
 - **Access control**: localhost and desktop sessions need no password; remote access must set one. Use `-require-auth` behind a local reverse proxy.
 - **Single binary**: SvelteKit assets are embedded with `go:embed`.
-- **Desktop app**: optional Wails v3 shell reusing the same Go HTTP handler and frontend; macOS streaming is supported through the Wails v3 asset server.
+- **Desktop app**: optional Wails v3 shell reusing the same Go HTTP handler and frontend; it serves the OpenAI-compatible gateway on `http://127.0.0.1:11211` by default (configurable), and macOS streaming is supported through the Wails v3 asset server.
 - **In-app updates**: check the latest GitHub release from Settings, verify the downloaded asset with `SHA256SUMS`, install it and restart automatically. macOS desktop builds update the app bundle and re-sign it ad hoc.
 
 ## Alternatives
@@ -123,11 +123,11 @@ The default is `~/.config/flashroute/`:
 ~/.config/flashroute/
 ├── config.yaml   # providers, models, routes, API keys, password hash
 ├── stats.yaml    # route and target stats
-├── chats.db      # non-private chats and message version tree (pure-Go SQLite)
+├── flashroute.db # non-private chats, message tree and redaction records (pure-Go SQLite)
 └── uploads/      # non-private chat images
 ```
 
-Provider API keys are stored in plain text in `config.yaml` and masked by default in the UI; use the copy button to get the full value. Files are created with `0600` and the data directory with `0700`. Chats use pure-Go SQLite; editing a user message adds a user-message version, and regenerating an assistant reply adds a reply version. An existing `chats.yaml` is migrated to `chats.db` automatically on startup.
+Provider API keys are stored in plain text in `config.yaml` and masked by default in the UI; use the copy button to get the full value. Files are created with `0600` and the data directory with `0700`. Chats use pure-Go SQLite; editing a user message adds a user-message version, and regenerating an assistant reply adds a reply version. An existing `chats.yaml` is migrated automatically, and a legacy `chats.db` is renamed to `flashroute.db` on startup.
 
 ## Using the gateway
 
@@ -182,6 +182,10 @@ FLASHROUTE_UPDATE_BASE_URL=https://mirror.example/flashroute/releases/download \
 ```
 
 `FLASHROUTE_UPDATE_API` returns the latest release JSON. `FLASHROUTE_UPDATE_BASE_URL` must expose assets at `v<version>/<asset-name>` and is also used for `SHA256SUMS`. Standard `HTTP_PROXY` / `HTTPS_PROXY` environment variables are respected.
+
+## Chat web search
+
+The chat header has a **Web search** switch, on by default. When enabled, the model gets `web_search` and `web_fetch` function tools and decides when to call them. If a DeepSeek provider is configured, the tools use the DeepSeek Search / Fetch APIs; otherwise FlashRoute falls back to Bing search and direct page fetching. The current date and time are included in the tool prompt. When redaction is enabled, queries are redacted before they leave FlashRoute. Set `FLASHROUTE_SEARCH_URL` to use a compatible Bing or DuckDuckGo HTML endpoint or mirror for the fallback search.
 
 ## Project layout
 

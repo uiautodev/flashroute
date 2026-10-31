@@ -16,14 +16,16 @@ import (
 const sessionCookie = "flashroute_session"
 
 type authStatus struct {
-	Local         bool   `json:"local"`
-	Desktop       bool   `json:"desktop"`
-	Required      bool   `json:"required"`
-	Configured    bool   `json:"configured"`
-	Authenticated bool   `json:"authenticated"`
-	Version       string `json:"version"`
-	Commit        string `json:"commit"`
-	DataDir       string `json:"data_dir"`
+	Local           bool   `json:"local"`
+	Desktop         bool   `json:"desktop"`
+	Required        bool   `json:"required"`
+	Configured      bool   `json:"configured"`
+	Authenticated   bool   `json:"authenticated"`
+	Version         string `json:"version"`
+	Commit          string `json:"commit"`
+	DataDir         string `json:"data_dir"`
+	GatewayEndpoint string `json:"gateway_endpoint,omitempty"`
+	DesktopPort     int    `json:"desktop_port,omitempty"`
 }
 
 func (s *Server) required(r *http.Request) bool {
@@ -36,14 +38,16 @@ func (s *Server) required(r *http.Request) bool {
 func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	local := s.isLocal(r)
 	writeJSON(w, http.StatusOK, authStatus{
-		Local:         local,
-		Desktop:       s.opts.Desktop,
-		Required:      s.required(r),
-		Configured:    s.store.PasswordHash() != "",
-		Authenticated: (local && !s.opts.ForceAuth) || s.authenticated(r),
-		Version:       s.opts.Version,
-		Commit:        s.opts.Commit,
-		DataDir:       s.opts.DataDir,
+		Local:           local,
+		Desktop:         s.opts.Desktop,
+		Required:        s.required(r),
+		Configured:      s.store.PasswordHash() != "",
+		Authenticated:   (local && !s.opts.ForceAuth) || s.authenticated(r),
+		Version:         s.opts.Version,
+		Commit:          s.opts.Commit,
+		DataDir:         s.opts.DataDir,
+		GatewayEndpoint: s.opts.GatewayEndpoint,
+		DesktopPort:     s.store.DesktopPort(),
 	})
 }
 

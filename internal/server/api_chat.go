@@ -2,10 +2,12 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/uiautodev/flashroute/internal/config"
 	"github.com/uiautodev/flashroute/internal/gateway"
+	"github.com/uiautodev/flashroute/internal/redact"
 	"github.com/uiautodev/flashroute/internal/store"
 )
 
@@ -24,6 +27,7 @@ type chatSendRequest struct {
 	Message             string               `json:"message"`
 	Images              []string             `json:"images"`
 	Privacy             bool                 `json:"privacy"`
+	WebSearch           bool                 `json:"web_search"`
 	Stream              bool                 `json:"stream"`
 	EditMessageID       string               `json:"edit_message_id"`
 	RegenerateMessageID string               `json:"regenerate_message_id"`
@@ -87,6 +91,21 @@ func (s *Server) handleDeleteChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "chat not found")
 		return
 	}
+	s.removeChatImages(images)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleDeleteAllChats(w http.ResponseWriter, r *http.Request) {
+	images, err := s.store.DeleteAllChats()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.removeChatImages(images)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) removeChatImages(images []string) {
 	for _, img := range images {
 		name := strings.TrimPrefix(img, "/api/uploads/")
 		if name == img || name == "" {
@@ -95,7 +114,6 @@ func (s *Server) handleDeleteChat(w http.ResponseWriter, r *http.Request) {
 		path := filepath.Join(s.store.UploadDir(), filepath.Base(name))
 		_ = os.Remove(path)
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
@@ -130,6 +148,7 @@ type preparedChat struct {
 	createUser        bool
 	assistantParentID string
 	newChat           bool
+	tools             bool
 }
 
 func (s *Server) prepareChat(req chatSendRequest) (*preparedChat, int, error) {
@@ -309,7 +328,16 @@ func (s *Server) prepareChat(req chatSendRequest) (*preparedChat, int, error) {
 	return prep, 0, nil
 }
 
-func (s *Server) chatPayload(prep *preparedChat) ([]byte, error) {
+func (s *Server) chatPayload(ctx context.Context, prep *preparedChat) ([]byte, error) {
+	redactor := s.activeRedactor()
+	for i := range prep.history {
+		if prep.history[i].Role == "user" {
+			prep.history[i].Redacted = containsSensitive(redactor, prep.history[i].Content)
+		}
+	}
+	if prep.createUser {
+		prep.userMsg.Redacted = containsSensitive(redactor, prep.userMsg.Content)
+	}
 	messages := append([]config.ChatMessage(nil), prep.history...)
 	if prep.createUser {
 		messages = append(messages, prep.userMsg)
@@ -318,20 +346,96 @@ func (s *Server) chatPayload(prep *preparedChat) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]any{
+	tools := prep.req.WebSearch && s.supportsChatTools(prep.req.Model)
+	prep.tools = tools
+	if tools {
+		openAIMessages = append([]map[string]any{{"role": "system", "content": chatToolsSystemPrompt()}}, openAIMessages...)
+	} else if contextText := s.webSearchContext(ctx, prep, redactor); contextText != "" {
+		openAIMessages = append([]map[string]any{{"role": "system", "content": contextText}}, openAIMessages...)
+	}
+	payload := map[string]any{
 		"model":       prep.req.Model,
 		"messages":    openAIMessages,
 		"stream":      true,
 		"temperature": 0.7,
-	})
+	}
+	if tools {
+		payload["tools"] = chatToolDefinitions
+		payload["tool_choice"] = "auto"
+	}
+	return json.Marshal(payload)
 }
 
-func (s *Server) commitChat(prep *preparedChat, text, reasoning, providerID, providerName, model string) (config.Chat, config.ChatMessage, error) {
+func (s *Server) webSearchContext(ctx context.Context, prep *preparedChat, redactor *redact.Redactor) string {
+	if !prep.req.WebSearch || s.search == nil {
+		return ""
+	}
+	query := truncate(prep.searchQuery(), 400)
+	if query == "" {
+		return ""
+	}
+	if redactor != nil {
+		query = redactor.MaskText(query)
+	}
+	var out strings.Builder
+	now := time.Now()
+	out.WriteString("Current date and time: ")
+	out.WriteString(now.Format(time.RFC3339))
+	out.WriteString(" (")
+	out.WriteString(now.Weekday().String())
+	out.WriteString(")\n\n")
+	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	results, err := s.search.Search(searchCtx, query)
+	if err != nil {
+		log.Printf("web search: %v", err)
+		out.WriteString("Web search failed; answer without search results.")
+		return out.String()
+	}
+	if len(results) == 0 {
+		out.WriteString("No web search results were found.")
+		return out.String()
+	}
+	out.WriteString("Web search results for the user's latest message:\n\n")
+	for i, result := range results {
+		fmt.Fprintf(&out, "%d. %s\n%s\n%s\n\n", i+1, result.Title, result.URL, result.Snippet)
+	}
+	out.WriteString("Use these results when they are relevant. Mention the source URLs in your answer.")
+	return out.String()
+}
+
+func (prep *preparedChat) searchQuery() string {
+	if prep.createUser {
+		return strings.TrimSpace(prep.userMsg.Content)
+	}
+	for i := len(prep.history) - 1; i >= 0; i-- {
+		if prep.history[i].Role == "user" && strings.TrimSpace(prep.history[i].Content) != "" {
+			return strings.TrimSpace(prep.history[i].Content)
+		}
+	}
+	return ""
+}
+
+func (s *Server) activeRedactor() *redact.Redactor {
+	if !s.store.RedactionEnabled() {
+		return nil
+	}
+	return redact.CompileWithSecret(s.store.RedactRules(), s.store.SessionSecret())
+}
+
+func containsSensitive(redactor *redact.Redactor, text string) bool {
+	if redactor == nil || strings.TrimSpace(text) == "" {
+		return false
+	}
+	return redactor.MaskText(text) != text
+}
+
+func (s *Server) commitChat(prep *preparedChat, text, reasoning, providerID, providerName, model string, tools []string) (config.Chat, config.ChatMessage, error) {
 	now := config.Now()
 	assistantMsg := config.ChatMessage{
 		ID: store.NewID(), ParentID: prep.assistantParentID, Role: "assistant",
 		Content: strings.TrimSpace(text), Reasoning: strings.TrimSpace(reasoning),
-		Model: providerID + "/" + model, Provider: providerName, CreatedAt: now,
+		Model: providerID + "/" + model, Provider: providerName, Tools: tools, CreatedAt: now,
 	}
 	if prep.req.Privacy {
 		messages := append([]config.ChatMessage(nil), prep.history...)
@@ -386,7 +490,7 @@ func (s *Server) handleSendChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err.Error())
 		return
 	}
-	payload, err := s.chatPayload(prep)
+	payload, err := s.chatPayload(r.Context(), prep)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -397,29 +501,39 @@ func (s *Server) handleSendChat(w http.ResponseWriter, r *http.Request) {
 	}
 	payload = replaceStreamFalse(payload)
 	start := time.Now()
-	comp, err := s.gw.Complete(r.Context(), req.Model, payload, true)
+	var result chatRoundResult
+	if prep.tools {
+		result, err = s.runChatComplete(r.Context(), prep, payload)
+	} else {
+		var comp *gateway.Completion
+		comp, err = s.gw.Complete(r.Context(), req.Model, payload, true)
+		if err == nil && (comp.StatusCode < 200 || comp.StatusCode >= 300) {
+			err = fmt.Errorf("%s", upstreamChatError(comp.StatusCode, comp.Body))
+		}
+		if err == nil {
+			var text, reasoning string
+			text, reasoning, err = gateway.ExtractAssistantReply(comp.Body)
+			if err == nil {
+				result = chatRoundResult{
+					Content: text, Reasoning: reasoning,
+					ProviderID: comp.Provider.ID, Provider: comp.Provider.Name, Model: comp.Model,
+				}
+			}
+		}
+	}
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	if comp.StatusCode < 200 || comp.StatusCode >= 300 {
-		writeError(w, http.StatusBadGateway, upstreamChatError(comp.StatusCode, comp.Body))
-		return
-	}
-	text, reasoning, err := gateway.ExtractAssistantReply(comp.Body)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	chat, assistant, err := s.commitChat(prep, text, reasoning, comp.Provider.ID, comp.Provider.Name, comp.Model)
+	chat, assistant, err := s.commitChat(prep, result.Content, result.Reasoning, result.ProviderID, result.Provider, result.Model, result.Tools)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"chat": chat, "reply": assistant, "privacy": req.Privacy,
-		"latency_ms": time.Since(start).Milliseconds(), "provider": comp.Provider.Name,
-		"provider_id": comp.Provider.ID, "model": comp.Model,
+		"latency_ms": time.Since(start).Milliseconds(), "provider": result.Provider,
+		"provider_id": result.ProviderID, "model": result.Model,
 	})
 }
 
@@ -463,42 +577,27 @@ func (s *Server) handleSendChatStream(w http.ResponseWriter, r *http.Request, pr
 		return
 	}
 	start := time.Now()
-	resp, err := s.gw.Execute(r.Context(), prep.req.Model, payload, true)
+	result, err := s.runChatStream(r.Context(), prep, payload, send)
 	if err != nil {
 		send("error", map[string]string{"error": err.Error()})
 		return
 	}
-	defer resp.Response.Body.Close()
-	if resp.Response.StatusCode < 200 || resp.Response.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Response.Body, 32<<10))
-		send("error", map[string]string{"error": upstreamChatError(resp.Response.StatusCode, body)})
-		return
-	}
-	text, reasoning, err := consumeChatStream(resp.Response, func(delta string) {
-		send("delta", map[string]string{"content": delta})
-	}, func(delta string) {
-		send("reasoning", map[string]string{"content": delta})
-	})
-	if err != nil {
-		send("error", map[string]string{"error": err.Error()})
-		return
-	}
-	if strings.TrimSpace(text) == "" && strings.TrimSpace(reasoning) == "" {
+	if strings.TrimSpace(result.Content) == "" && strings.TrimSpace(result.Reasoning) == "" {
 		send("error", map[string]string{"error": "upstream returned an empty response"})
 		return
 	}
 	if r.Context().Err() != nil {
 		return
 	}
-	chat, assistant, err := s.commitChat(prep, text, reasoning, resp.Provider.ID, resp.Provider.Name, resp.Model)
+	chat, assistant, err := s.commitChat(prep, result.Content, result.Reasoning, result.ProviderID, result.Provider, result.Model, result.Tools)
 	if err != nil {
 		send("error", map[string]string{"error": err.Error()})
 		return
 	}
 	send("done", map[string]any{
 		"chat": chat, "reply": assistant, "privacy": prep.req.Privacy,
-		"latency_ms": time.Since(start).Milliseconds(), "provider": resp.Provider.Name,
-		"provider_id": resp.Provider.ID, "model": resp.Model,
+		"latency_ms": time.Since(start).Milliseconds(), "provider": result.Provider,
+		"provider_id": result.ProviderID, "model": result.Model,
 	})
 }
 
@@ -752,4 +851,18 @@ func truncate(s string, n int) string {
 	}
 	r := []rune(s)
 	return string(r[:n]) + "…"
+}
+
+func (s *Server) handleSetDesktopPort(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Port int `json:"port"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if err := s.store.SetDesktopPort(body.Port); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"port": s.store.DesktopPort(), "restart_required": true})
 }

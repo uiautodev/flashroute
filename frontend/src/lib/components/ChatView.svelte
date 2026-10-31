@@ -19,6 +19,7 @@
 	let messages = [];
 	let model = '';
 	let privacy = false;
+	let webSearch = typeof localStorage !== 'undefined' ? localStorage.getItem('flashroute.webSearch') !== 'false' : true;
 	let text = '';
 	let attachments = [];
 	let sending = false;
@@ -27,8 +28,12 @@
 	let savingEdit = false;
 	let switchingVersion = false;
 	let fullscreen = false;
+	let historyOpen = false;
 	let activeRun = null;
 	let runSeq = 0;
+	let composing = false;
+	let compositionEndedAt = 0;
+	let toolStatus = '';
 	let streamingMessageID = '';
 	let streamFrame = 0;
 	let editBox;
@@ -43,7 +48,10 @@
 	$: hasModels = routes.length > 0 || direct.length > 0;
 	$: canSend = model && (text.trim() || attachments.length > 0) && !editingID;
 
-	onMount(() => () => document.documentElement.classList.remove('chat-fullscreen'));
+	onMount(() => () => {
+		document.documentElement.classList.remove('chat-fullscreen');
+		document.documentElement.classList.remove('chat-history-open');
+	});
 
 	onMount(async () => {
 		model = localStorage.getItem('flashroute.model') || '';
@@ -80,6 +88,7 @@
 	}
 
 	async function newChat() {
+		closeHistory();
 		current = null;
 		messages = [];
 		error = '';
@@ -92,6 +101,7 @@
 	}
 
 	async function openChat(chat) {
+		closeHistory();
 		try {
 			const data = await api.get('/api/chats/' + chat.id);
 			current = data;
@@ -101,6 +111,18 @@
 			if (data.model && modelExists(data.model)) model = data.model;
 			await refreshChats();
 			await scrollBottom();
+		} catch (err) {
+			toast(err.message, 'error');
+		}
+	}
+
+	async function clearHistory() {
+		if (!chats.length || !confirm($t('chat.clearConfirm'))) return;
+		try {
+			await api.del('/api/chats');
+			chats = [];
+			await newChat();
+			toast($t('chat.cleared'), 'success');
 		} catch (err) {
 			toast(err.message, 'error');
 		}
@@ -202,6 +224,7 @@
 		};
 		messages = [...messages, optimistic, placeholder];
 		streamingMessageID = assistantID;
+		toolStatus = '';
 		text = '';
 		attachments = [];
 		sending = true;
@@ -214,6 +237,7 @@
 					message: outgoingText,
 					images: outgoingImages,
 					privacy,
+					web_search: webSearch,
 					stream: true,
 					history
 				},
@@ -273,6 +297,7 @@
 		];
 		if (!regenerate) editingID = '';
 		streamingMessageID = assistantID;
+		toolStatus = '';
 		savingEdit = true;
 		error = '';
 		await scrollBottom();
@@ -284,6 +309,7 @@
 					message: nextText,
 					images: [],
 					privacy,
+					web_search: webSearch,
 					stream: true,
 					edit_message_id: message.id,
 					history
@@ -326,6 +352,7 @@
 		);
 		streamingMessageID = assistantID;
 		savingEdit = true;
+		toolStatus = '';
 		error = '';
 		await scrollBottom();
 		try {
@@ -333,6 +360,7 @@
 				{
 					chat_id: current.id,
 					model,
+					web_search: webSearch,
 					regenerate_message_id: message.id,
 					privacy: false,
 					stream: true,
@@ -400,7 +428,12 @@
 				);
 				scheduleScroll();
 			}
+		} else if (event === 'tool') {
+			toolStatus = data.name === 'web_fetch' ? $t('chat.fetchingPage') : $t('chat.searchingWeb');
+		} else if (event === 'tool_done') {
+			toolStatus = '';
 		} else if (event === 'done') {
+			toolStatus = '';
 			messages = data.chat.messages || [];
 			if (!privacy) current = data.chat;
 		}
@@ -420,11 +453,40 @@
 		}
 	}
 
+	function onCompositionStart() {
+		composing = true;
+	}
+
+	function onCompositionEnd() {
+		composing = false;
+		compositionEndedAt = performance.now();
+	}
+
+	function isImeEnter(event) {
+		return composing || event.isComposing || event.keyCode === 229 || performance.now() - compositionEndedAt < 80;
+	}
+
+	function toolLabel(tools) {
+		const names = tools.map((tool) => (tool === 'web_fetch' ? $t('chat.webFetchTool') : $t('chat.webSearchTool')));
+		return $t('chat.usedTools', { tools: names.join(' · ') });
+	}
+
+	function reasoningOpen(message) {
+		if (typeof message.reasoningOpen === 'boolean') return message.reasoningOpen;
+		return !message.content;
+	}
+
+	function toggleReasoning(message) {
+		messages = messages.map((item) =>
+			item.id === message.id ? { ...item, reasoningOpen: !reasoningOpen(message) } : item
+		);
+	}
+
 	function onKeydown(event) {
-		if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-			event.preventDefault();
-			if (canSend) send();
-		}
+		if (event.key !== 'Enter' || event.shiftKey) return;
+		if (isImeEnter(event)) return;
+		event.preventDefault();
+		if (canSend) send();
 	}
 
 	function autoGrow() {
@@ -495,9 +557,25 @@
 		if (privacy) current = null;
 	}
 
+	function toggleWebSearch() {
+		webSearch = !webSearch;
+		localStorage.setItem('flashroute.webSearch', String(webSearch));
+	}
+
+	function closeHistory() {
+		historyOpen = false;
+		document.documentElement.classList.remove('chat-history-open');
+	}
+
+	function toggleHistory() {
+		historyOpen = !historyOpen;
+		document.documentElement.classList.toggle('chat-history-open', fullscreen && historyOpen);
+	}
+
 	function toggleFullscreen() {
 		fullscreen = !fullscreen;
 		document.documentElement.classList.toggle('chat-fullscreen', fullscreen);
+		if (!fullscreen) closeHistory();
 	}
 </script>
 
@@ -512,16 +590,30 @@
 	ondragleave={() => (dragActive = false)}
 	ondrop={onDrop}
 >
+	{#if fullscreen}
+		<div class="chat-history-scrim" class:show={historyOpen} role="presentation" onclick={closeHistory}></div>
+	{/if}
 	<aside class="chat-history card">
 		<div class="history-head">
 			<div>
 				<div class="history-eyebrow">{$t('chat.history')}</div>
 				<div class="history-count">{chats.length}</div>
 			</div>
-			<button class="btn btn-sm btn-primary" onclick={newChat} title={$t('chat.newChat')}>
-				<Icon name="plus" size={14} />
-				{$t('chat.newChat')}
-			</button>
+			<div class="history-head-actions">
+				<button
+					class="btn btn-ghost btn-icon"
+					onclick={clearHistory}
+					disabled={!chats.length || loading}
+					title={$t('chat.clearHistory')}
+					aria-label={$t('chat.clearHistory')}
+				>
+					<Icon name="trash" size={14} />
+				</button>
+				<button class="btn btn-sm btn-primary" onclick={newChat} title={$t('chat.newChat')}>
+					<Icon name="plus" size={14} />
+					{$t('chat.newChat')}
+				</button>
+			</div>
 		</div>
 		{#if privacy}
 			<div class="private-chip">
@@ -568,7 +660,10 @@
 		<header class="chat-head">
 			<div class="chat-head-main">
 				<div class="model-select-wrap">
-					<span class="chat-head-label">{$t('chat.model')}</span>
+					<div class="chat-head-label-row">
+						<span class="chat-head-label">{$t('chat.model')}</span>
+						{#if current?.title}<span class="current-title" title={current.title}>{current.title}</span>{/if}
+					</div>
 					<select class="select model-select" bind:value={model} onchange={chooseModel} disabled={!hasModels}>
 						{#if !hasModels}
 							<option value="">{$t('chat.noModelsTitle')}</option>
@@ -589,15 +684,40 @@
 						{/if}
 					</select>
 				</div>
-				{#if current?.title}<span class="current-title">{current.title}</span>{/if}
 			</div>
 			<div class="chat-head-right">
+				<div class="websearch-control">
+					<Icon name="globe" size={15} />
+					<span>{$t('chat.webSearch')}</span>
+					<button
+						class="switch small"
+						class:on={webSearch}
+						onclick={toggleWebSearch}
+						aria-label={$t('chat.webSearch')}
+						aria-pressed={webSearch}
+						title={$t('chat.webSearchHint')}
+					></button>
+				</div>
 				<div class="privacy-control">
 					<Icon name="shield" size={15} />
 					<span>{$t('chat.privacy')}</span>
 					<button class="switch small" class:on={privacy} onclick={togglePrivacy} aria-label={$t('chat.privacy')}></button>
 					<span class="privacy-state">{privacy ? $t('chat.privacyOn') : $t('chat.privacyOff')}</span>
 				</div>
+				{#if fullscreen}
+					<button
+						class="btn btn-ghost btn-icon"
+						onclick={toggleHistory}
+						title={$t('chat.history')}
+						aria-label={$t('chat.history')}
+						aria-expanded={historyOpen}
+					>
+						<Icon name="clock" size={16} />
+					</button>
+					<button class="btn btn-ghost btn-icon" onclick={newChat} title={$t('chat.newChat')} aria-label={$t('chat.newChat')}>
+						<Icon name="plus" size={16} />
+					</button>
+				{/if}
 				<button
 					class="btn btn-ghost btn-icon"
 					onclick={toggleFullscreen}
@@ -656,7 +776,7 @@
 										bind:value={editingText}
 										onkeydown={(event) => {
 											if (event.key === 'Escape') cancelEdit();
-											if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+											if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !isImeEnter(event)) {
 												event.preventDefault();
 												saveEdit(message);
 											}
@@ -673,15 +793,10 @@
 									</div>
 								</div>
 							{:else if message.id === streamingMessageID && !message.content && !message.reasoning}
-								<div class="thinking"><span class="spinner"></span>{$t('chat.sending')}</div>
+								<div class="thinking"><span class="spinner"></span>{toolStatus || $t('chat.sending')}</div>
 							{:else}
-								{#if message.reasoning && !message.content}
+								{#if message.reasoning && reasoningOpen(message)}
 									<div class="reasoning-block">
-										<div class="reasoning-head">
-											<Icon name="spark" size={13} />
-											<span>{$t('chat.reasoning')}</span>
-											{#if message.id === streamingMessageID && !message.content}<span class="spinner"></span>{/if}
-										</div>
 										<div class="reasoning-text">{message.reasoning}</div>
 									</div>
 								{/if}
@@ -695,6 +810,11 @@
 							{#if message.id !== streamingMessageID && editingID !== message.id}
 								<div class="message-footer">
 									<span class="message-actions">
+										{#if message.role === 'user' && message.redacted}
+											<span class="message-safe" title={$t('chat.redactedHint')} aria-label={$t('chat.redacted')}>
+												<Icon name="shield" size={13} />
+											</span>
+										{/if}
 										{#if message.role === 'user'}
 											<button onclick={() => startEdit(message)} title={$t('chat.editMessage')} aria-label={$t('chat.editMessage')}>
 												<Icon name="edit" size={13} />
@@ -706,6 +826,22 @@
 										{#if message.role === 'assistant' && !privacy}
 											<button onclick={() => regenerate(message)} title={$t('chat.regenerate')} aria-label={$t('chat.regenerate')} disabled={sending || savingEdit}>
 												<Icon name="refresh" size={13} />
+											</button>
+										{/if}
+										{#if message.role === 'assistant' && message.tools?.length}
+											<span class="tool-indicator" title={toolLabel(message.tools)} aria-label={toolLabel(message.tools)}>
+												<Icon name="globe" size={13} />
+											</span>
+										{/if}
+										{#if message.role === 'assistant' && message.reasoning}
+											<button
+												class:active={reasoningOpen(message)}
+												onclick={() => toggleReasoning(message)}
+												title={reasoningOpen(message) ? $t('chat.hideReasoning') : $t('chat.showReasoning')}
+												aria-label={reasoningOpen(message) ? $t('chat.hideReasoning') : $t('chat.showReasoning')}
+												aria-pressed={reasoningOpen(message)}
+											>
+												<Icon name="spark" size={13} />
 											</button>
 										{/if}
 										{#if message.version_count > 1}
@@ -776,6 +912,8 @@
 						bind:value={text}
 						oninput={autoGrow}
 						onkeydown={onKeydown}
+						oncompositionstart={onCompositionStart}
+						oncompositionend={onCompositionEnd}
 						onpaste={onPaste}
 						placeholder={$t('chat.placeholder')}
 						rows="1"
@@ -809,8 +947,8 @@
 		min-height: 500px;
 	}
 	.chat-layout.drag-active .chat-panel {
-		border-color: rgba(52, 211, 153, 0.55);
-		box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.08);
+		border-color: var(--accent-border-strong);
+		box-shadow: 0 0 0 3px var(--accent-ring);
 	}
 	.chat-history {
 		display: flex;
@@ -837,6 +975,11 @@
 		font-size: 18px;
 		font-weight: 700;
 		margin-top: 2px;
+	}
+	.history-head-actions {
+		display: flex;
+		align-items: center;
+		gap: 4px;
 	}
 	.private-chip {
 		display: flex;
@@ -888,7 +1031,7 @@
 	}
 	.history-item.active {
 		background: var(--accent-soft);
-		border-color: rgba(52, 211, 153, 0.16);
+		border-color: var(--accent-border-soft);
 	}
 	.history-main {
 		min-width: 0;
@@ -932,6 +1075,35 @@
 		background: var(--danger-soft);
 		color: var(--danger);
 	}
+	.chat-history-scrim {
+		display: none;
+	}
+	:global(html.chat-fullscreen .chat-history-scrim) {
+		display: block;
+		position: fixed;
+		inset: 0;
+		z-index: 30;
+		background: var(--modal-backdrop);
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 0.15s ease;
+	}
+	:global(html.chat-fullscreen .chat-history-scrim.show) {
+		opacity: 1;
+		pointer-events: auto;
+	}
+	:global(html.chat-fullscreen.chat-history-open .chat-history) {
+		display: flex;
+		position: fixed;
+		top: 0;
+		bottom: 0;
+		left: 0;
+		z-index: 40;
+		width: min(300px, 82vw);
+		border-radius: 0;
+		border-right: 1px solid var(--line);
+		box-shadow: var(--shadow);
+	}
 	.chat-panel {
 		display: flex;
 		flex-direction: column;
@@ -943,7 +1115,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 18px;
+		gap: 12px;
 		padding: 12px 16px;
 		border-bottom: 1px solid var(--line-soft);
 		background: var(--chat-head-bg);
@@ -955,6 +1127,13 @@
 		gap: 14px;
 		min-width: 0;
 	}
+	.chat-head-label-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-width: 0;
+		margin-bottom: 3px;
+	}
 	.chat-head-label {
 		display: block;
 		font-size: 9px;
@@ -962,7 +1141,7 @@
 		text-transform: uppercase;
 		color: var(--muted);
 		font-weight: 700;
-		margin-bottom: 3px;
+		flex: none;
 	}
 	.model-select {
 		width: min(320px, 46vw);
@@ -972,9 +1151,9 @@
 		background-color: var(--surface-inset);
 	}
 	.current-title {
-		font-size: 11px;
+		font-size: 10.5px;
 		color: var(--muted);
-		max-width: 240px;
+		max-width: 180px;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -982,9 +1161,12 @@
 	.chat-head-right {
 		display: flex;
 		align-items: center;
-		gap: 10px;
+		gap: 8px;
+		flex-wrap: wrap;
+		justify-content: flex-end;
 	}
-	.privacy-control {
+	.privacy-control,
+	.websearch-control {
 		display: flex;
 		align-items: center;
 		gap: 7px;
@@ -999,10 +1181,10 @@
 	.messages {
 		flex: 1;
 		overflow-y: auto;
-		padding: 24px 22px 16px;
+		padding: 18px 18px 12px;
 		display: flex;
 		flex-direction: column;
-		gap: 22px;
+		gap: 16px;
 		min-height: 0;
 	}
 	.welcome {
@@ -1024,9 +1206,9 @@
 		place-items: center;
 		color: var(--accent);
 		background: var(--accent-soft);
-		border: 1px solid rgba(52, 211, 153, 0.15);
+		border: 1px solid var(--accent-border-soft);
 		margin-bottom: 6px;
-		box-shadow: 0 18px 50px rgba(52, 211, 153, 0.08);
+		box-shadow: 0 18px 50px var(--accent-ring);
 	}
 	.welcome h2 {
 		font-size: 22px;
@@ -1041,8 +1223,8 @@
 	}
 	.message {
 		display: flex;
-		gap: 11px;
-		max-width: 86%;
+		gap: 9px;
+		max-width: 90%;
 	}
 	.message.user {
 		align-self: flex-end;
@@ -1062,7 +1244,7 @@
 	.message.assistant .avatar {
 		background: var(--accent-soft);
 		color: var(--accent);
-		border-color: rgba(52, 211, 153, 0.18);
+		border-color: var(--accent-border);
 	}
 	.message-body {
 		min-width: 0;
@@ -1073,22 +1255,30 @@
 		flex-wrap: wrap;
 		font-size: 9.5px;
 		color: var(--muted);
-		margin-bottom: 5px;
+		margin-bottom: 4px;
 		letter-spacing: 0.02em;
 	}
 	.message.user .message-meta {
 		justify-content: flex-end;
+	}
+	.message-safe {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 3px;
+		color: var(--safe);
+		opacity: 0.9;
 	}
 	.message-meta span:first-child {
 		font-weight: 700;
 		color: var(--text-soft);
 	}
 	.message-text {
-		font-size: 13px;
-		line-height: 1.67;
+		font-size: 12.5px;
+		line-height: 1.6;
 		overflow-wrap: anywhere;
-		padding: 11px 14px;
-		border-radius: 12px;
+		padding: 9px 12px;
+		border-radius: 11px;
 		border: 1px solid var(--line-soft);
 		background: var(--chat-bubble);
 		color: var(--chat-bubble-text);
@@ -1106,7 +1296,7 @@
 	}
 	.message-footer {
 		display: flex;
-		margin-top: 5px;
+		margin-top: 4px;
 	}
 	.message.user .message-footer {
 		justify-content: flex-end;
@@ -1134,6 +1324,16 @@
 	:global(.message-actions button:hover) {
 		background: var(--hover-tint);
 		color: var(--text);
+	}
+	:global(.message-actions button.active) {
+		background: var(--accent-soft);
+		color: var(--accent);
+	}
+	.tool-indicator {
+		display: grid;
+		place-items: center;
+		padding: 3px;
+		color: var(--accent);
 	}
 	.revision-inline {
 		display: inline-flex;
@@ -1178,8 +1378,8 @@
 		line-height: 1.55;
 	}
 	.edit-input:focus {
-		border-color: rgba(52, 211, 153, 0.55);
-		box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.08);
+		border-color: var(--accent-border-strong);
+		box-shadow: 0 0 0 3px var(--accent-ring);
 	}
 	.edit-hint {
 		font-size: 10px;
@@ -1321,30 +1521,19 @@
 		border: 1px solid var(--line);
 	}
 	.reasoning-block {
-		margin-bottom: 10px;
-		padding: 10px 13px;
+		margin-bottom: 7px;
+		padding: 8px 10px;
 		border: 1px solid var(--line-soft);
-		border-radius: 12px;
+		border-radius: 9px;
 		background: var(--surface-inset);
 	}
-	.reasoning-head {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		margin-bottom: 6px;
-		font-size: 10.5px;
-		font-weight: 650;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-		color: var(--text-soft);
-	}
 	.reasoning-text {
-		max-height: 320px;
+		max-height: 260px;
 		overflow-y: auto;
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
-		font-size: 12px;
-		line-height: 1.65;
+		font-size: 11.5px;
+		line-height: 1.55;
 		color: var(--muted);
 	}
 	.thinking {
@@ -1391,8 +1580,8 @@
 			box-shadow 0.15s ease;
 	}
 	.composer-box:focus-within {
-		border-color: rgba(52, 211, 153, 0.45);
-		box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.07);
+		border-color: var(--accent-border-strong);
+		box-shadow: 0 0 0 3px var(--accent-ring);
 	}
 	.attach-btn {
 		margin-bottom: 1px;

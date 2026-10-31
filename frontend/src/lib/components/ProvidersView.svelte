@@ -76,6 +76,18 @@
 		}
 	}
 
+	async function toggleProvider(provider) {
+		const next = !provider.enabled;
+		providers = providers.map((item) => (item.id === provider.id ? { ...item, enabled: next } : item));
+		try {
+			await api.post('/api/providers', { ...provider, enabled: next });
+			await load();
+		} catch (err) {
+			providers = providers.map((item) => (item.id === provider.id ? { ...item, enabled: provider.enabled } : item));
+			toast(err.message, 'error');
+		}
+	}
+
 	function openAdd() {
 		editing = false;
 		form = blankForm();
@@ -567,7 +579,7 @@
 	.view-toggle .btn.active {
 		background: var(--accent-soft);
 		color: var(--accent);
-		border-color: rgba(52, 211, 153, 0.22);
+		border-color: var(--accent-border);
 	}
 	.provider-list-card {
 		padding: 0;
@@ -668,8 +680,8 @@
 		border-radius: 10px;
 		display: grid;
 		place-items: center;
-		background: linear-gradient(135deg, rgba(52, 211, 153, 0.17), rgba(34, 211, 238, 0.12));
-		border: 1px solid rgba(52, 211, 153, 0.16);
+		background: var(--chat-user-bg);
+		border: 1px solid var(--accent-border-soft);
 		color: var(--accent);
 		font-weight: 750;
 		font-size: 15px;

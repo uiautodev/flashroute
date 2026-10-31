@@ -17,15 +17,15 @@
 - **API 类型**：每个供应商可选择 Chat Completions、Responses 或 Anthropic Messages API，网关会自动转换请求和流式响应。
 - **组合路由**：例如 `grounder` 依次请求 `ds/deepseek-flash`、`aliyun/qwen3.8-27b`；429、5xx 和网络错误自动切到下一个。
 - **统计**：路由请求数、成功率、每个目标命中率和 429 次数，数据持久化到 YAML。
-- **客户端 Key**：自动生成 `sk-fr-` 前缀的 Key，界面默认打码显示，可一键复制完整值。
-- **信息脱敏**：发送给供应商前按自定义正则替换消息中的敏感信息。默认覆盖 API Key、Bearer Token 和私钥；占位标签可逆，模型回复中的标签会自动还原。规则和全局开关都在「信息脱敏」页。
+- **客户端 Key**：自动生成 `sk-fr-` 前缀的 Key，界面默认打码显示，可一键复制完整值。本机请求默认可以不带 Key 访问网关，可在「API Key」页关闭。
+- **信息脱敏**：发送给供应商前按自定义正则替换消息中的敏感信息。命中内容会替换为等长随机字符串，并保留标点、空白和 PEM 标记（例如 `sk-123456` 仍是 `sk-` 开头的同长度字符串，私钥仍保持原有结构），邮箱地址保留 `@` 后面的域名。模型回复中的内容会自动还原；聊天中包含敏感信息的消息会显示「已保护」标记。每条规则的替换内容可以填 `***` 这类占位符（保持等长同格式）、固定文本，或使用 `$1` 这类捕获组反向引用；「信息脱敏」页会显示命中次数和最近 30 天的替换记录，支持立即清空。规则和全局开关也在该页。
 - **OpenAI 兼容网关**：`/v1/models`、`/v1/chat/completions`，支持 `stream: true`。
-- **聊天界面**：流式输出、思考过程展示、文字 + 图片、Markdown 渲染、一键复制、隐私模式（不落盘）和历史会话。
+- **聊天界面**：流式输出、思考过程展开/收起、文字 + 图片、Markdown 渲染、一键复制、隐私模式（不落盘）、历史会话删除/清空，以及可开关的联网搜索（默认开启）。
 - **消息版本**：修改用户消息会新增用户消息版本，重新生成 AI 回复会新增回复版本；每条消息独立显示 `当前/总数` 并支持左右切换，版本树存储在 SQLite。
 - **多语言与主题**：中文 / English，暗黑 / 亮色 / 跟随系统。
 - **访问控制**：localhost 和桌面版免密码；远程访问必须设置密码。反向代理场景可加 `-require-auth`。
 - **独立二进制**：SvelteKit 构建产物通过 `go:embed` 打包，单个 Go 二进制即可运行。
-- **桌面应用**：可选 Wails v3 桌面壳，复用同一套 Go HTTP handler 和前端；macOS 通过 Wails v3 asset server 支持流式输出。
+- **桌面应用**：可选 Wails v3 桌面壳，复用同一套 Go HTTP handler 和前端；默认在 `http://127.0.0.1:11211` 提供 OpenAI 兼容网关（端口可自定义），macOS 通过 Wails v3 asset server 支持流式输出。
 - **应用内更新**：在设置页检查最新 GitHub Release，使用 `SHA256SUMS` 校验下载产物，安装后自动重启。macOS 桌面版会更新应用包并重新进行 ad-hoc 签名。
 
 ## 同类项目 / Alternatives
@@ -124,11 +124,11 @@ make desktop
 ~/.config/flashroute/
 ├── config.yaml   # 供应商、模型、组合路由、API Key、密码哈希
 ├── stats.yaml    # 路由与目标命中统计
-├── chats.db      # 非隐私聊天记录与消息版本树（SQLite，纯 Go）
+├── flashroute.db # 非隐私聊天记录、消息版本树和脱敏记录（SQLite，纯 Go）
 └── uploads/      # 非隐私聊天图片
 ```
 
-供应商 API Key 在 `config.yaml` 中按需求明文保存，并在前端默认打码显示，可点击复制获取完整值。文件权限为 `0600`，数据目录为 `0700`。聊天记录使用纯 Go SQLite 保存；编辑用户消息会新增用户消息版本，重新生成 AI 回复会新增回复版本，每条消息可独立前后切换。旧的 `chats.yaml` 会在启动时自动迁移为 `chats.db`。
+供应商 API Key 在 `config.yaml` 中按需求明文保存，并在前端默认打码显示，可点击复制获取完整值。文件权限为 `0600`，数据目录为 `0700`。聊天记录使用纯 Go SQLite 保存；编辑用户消息会新增用户消息版本，重新生成 AI 回复会新增回复版本，每条消息可独立前后切换。旧的 `chats.yaml` 会自动迁移；旧的 `chats.db` 会在启动时自动重命名为 `flashroute.db`。
 
 ## 使用网关
 
@@ -183,6 +183,10 @@ FLASHROUTE_UPDATE_BASE_URL=https://mirror.example/flashroute/releases/download \
 ```
 
 `FLASHROUTE_UPDATE_API` 返回最新 Release JSON；`FLASHROUTE_UPDATE_BASE_URL` 需要按 `v<version>/<asset-name>` 提供产物，`SHA256SUMS` 也从这个地址下载。标准 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量同样生效。
+
+## 聊天联网搜索
+
+聊天标题栏有「联网搜索」开关，默认开启。开启后模型会获得 `web_search` 和 `web_fetch` 两个 function tool，由模型自行决定何时调用。配置了 DeepSeek 供应商时，工具优先使用 DeepSeek 的 Search / Fetch API；否则回退到 Bing 搜索和直接网页抓取。提示词中同时包含当前时间。开启脱敏时，搜索查询会先脱敏再离开 FlashRoute。可通过 `FLASHROUTE_SEARCH_URL` 为回退搜索指定兼容的 Bing 或 DuckDuckGo HTML 端点或镜像。
 
 ## 项目结构
 
