@@ -14,6 +14,8 @@ import (
 	"github.com/uiautodev/flashroute/internal/store"
 )
 
+const rateLimitCooldown = 60 * time.Second
+
 type Gateway struct {
 	Store *store.Store
 	http  *ProviderClient
@@ -106,6 +108,10 @@ func (g *Gateway) Execute(ctx context.Context, model string, payload []byte, rec
 	attempts := make([]store.Attempt, 0, len(targets))
 	var lastErr error
 	for i, target := range targets {
+		if until := g.Store.TargetCooldown(target.Provider.ID, target.Model); until.After(time.Now()) {
+			lastErr = fmt.Errorf("%s/%s is cooling down until %s", target.Provider.ID, target.Model, until.Format(time.RFC3339))
+			continue
+		}
 		modelJSON, _ := json.Marshal(target.Model)
 		obj["model"] = modelJSON
 		chatBody, _ := json.Marshal(obj)
@@ -141,8 +147,10 @@ func (g *Gateway) Execute(ctx context.Context, model string, payload []byte, rec
 		outcome := "success"
 		switch {
 		case resp.StatusCode >= 200 && resp.StatusCode < 300:
+			g.Store.ClearTargetCooldown(target.Provider.ID, target.Model)
 		case resp.StatusCode == http.StatusTooManyRequests:
 			outcome = "rate_limit"
+			g.Store.SetTargetCooldown(target.Provider.ID, target.Model, time.Now().Add(rateLimitCooldown))
 		default:
 			outcome = "error"
 		}

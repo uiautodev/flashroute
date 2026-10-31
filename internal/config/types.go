@@ -332,12 +332,13 @@ type RouteStats struct {
 }
 
 type TargetStats struct {
-	Provider  string `yaml:"provider" json:"provider"`
-	Model     string `yaml:"model" json:"model"`
-	Attempts  int64  `yaml:"attempts" json:"attempts"`
-	Success   int64  `yaml:"success" json:"success"`
-	Errors    int64  `yaml:"errors" json:"errors"`
-	RateLimit int64  `yaml:"rate_limited" json:"rate_limited"`
+	Provider      string `yaml:"provider" json:"provider"`
+	Model         string `yaml:"model" json:"model"`
+	Attempts      int64  `yaml:"attempts" json:"attempts"`
+	Success       int64  `yaml:"success" json:"success"`
+	Errors        int64  `yaml:"errors" json:"errors"`
+	RateLimit     int64  `yaml:"rate_limited" json:"rate_limited"`
+	CooldownUntil string `yaml:"-" json:"cooldown_until,omitempty"`
 }
 
 type Chat struct {

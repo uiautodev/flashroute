@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/uiautodev/flashroute/internal/config"
 	"gopkg.in/yaml.v3"
@@ -26,11 +27,12 @@ const DefaultDesktopPort = 11211
 type Store struct {
 	dir string
 
-	mu     sync.RWMutex
-	cfg    config.Config
-	stats  config.Stats
-	db     *sql.DB
-	chatMu sync.Mutex
+	mu        sync.RWMutex
+	cfg       config.Config
+	stats     config.Stats
+	db        *sql.DB
+	chatMu    sync.Mutex
+	cooldowns map[string]time.Time
 }
 
 func DefaultDir() string {
@@ -48,7 +50,7 @@ func New(dir string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Join(dir, "uploads"), 0o700); err != nil {
 		return nil, err
 	}
-	s := &Store{dir: dir}
+	s := &Store{dir: dir, cooldowns: map[string]time.Time{}}
 	firstRun := false
 	if _, err := os.Stat(s.configPath()); errors.Is(err, os.ErrNotExist) {
 		firstRun = true
@@ -655,6 +657,31 @@ func (s *Store) SessionSecret() []byte {
 	return []byte(s.cfg.Auth.SessionSecret)
 }
 
+func targetCooldownKey(provider, model string) string {
+	return provider + "::" + model
+}
+
+func (s *Store) SetTargetCooldown(provider, model string, until time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cooldowns == nil {
+		s.cooldowns = map[string]time.Time{}
+	}
+	s.cooldowns[targetCooldownKey(provider, model)] = until
+}
+
+func (s *Store) TargetCooldown(provider, model string) time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cooldowns[targetCooldownKey(provider, model)]
+}
+
+func (s *Store) ClearTargetCooldown(provider, model string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.cooldowns, targetCooldownKey(provider, model))
+}
+
 func (s *Store) RecordRoute(alias string, success bool, attempts []Attempt) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -701,9 +728,16 @@ func (s *Store) StatsSnapshot(aliases []string) map[string]config.RouteStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := map[string]config.RouteStats{}
+	now := time.Now()
 	for _, alias := range aliases {
 		if rs := s.stats.Routes[alias]; rs != nil {
-			out[alias] = *cloneRouteStats(rs)
+			cloned := cloneRouteStats(rs)
+			for _, ts := range cloned.Targets {
+				if until, ok := s.cooldowns[targetCooldownKey(ts.Provider, ts.Model)]; ok && until.After(now) {
+					ts.CooldownUntil = until.Format(time.RFC3339)
+				}
+			}
+			out[alias] = *cloned
 		}
 	}
 	return out

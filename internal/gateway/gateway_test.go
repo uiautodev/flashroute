@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/uiautodev/flashroute/internal/config"
 	"github.com/uiautodev/flashroute/internal/store"
@@ -172,5 +173,61 @@ func TestExtractAssistantReplyReasoning(t *testing.T) {
 	}
 	if text != "answer" || reasoning != "think first" {
 		t.Fatalf("got text=%q reasoning=%q", text, reasoning)
+	}
+}
+
+func TestRateLimitCooldown(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			http.Error(w, "rate limited", http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer upstream.Close()
+
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.UpsertProvider(config.Provider{
+		ID: "p", Name: "P", BaseURL: upstream.URL + "/v1", APIKey: "key", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	g := New(st)
+	payload := []byte(`{"model":"p/m","messages":[{"role":"user","content":"hi"}]}`)
+	resp, err := g.Execute(context.Background(), "p/m", payload, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Response.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status = %d", resp.Response.StatusCode)
+	}
+	resp.Response.Body.Close()
+	until := st.TargetCooldown("p", "m")
+	if !until.After(time.Now().Add(50 * time.Second)) {
+		t.Fatalf("cooldown = %v, want about 60s", until)
+	}
+	if _, err := g.Execute(context.Background(), "p/m", payload, true); err == nil {
+		t.Fatal("expected cooling down error")
+	}
+	if calls != 1 {
+		t.Fatalf("upstream calls = %d, want 1 during cooldown", calls)
+	}
+	st.SetTargetCooldown("p", "m", time.Now().Add(-time.Second))
+	resp, err = g.Execute(context.Background(), "p/m", payload, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Response.StatusCode != http.StatusOK || calls != 2 {
+		t.Fatalf("status = %d calls = %d", resp.Response.StatusCode, calls)
+	}
+	resp.Response.Body.Close()
+	if !st.TargetCooldown("p", "m").IsZero() {
+		t.Fatal("cooldown was not cleared after success")
 	}
 }

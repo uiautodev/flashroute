@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/uiautodev/flashroute/internal/config"
 	"github.com/uiautodev/flashroute/internal/redact"
@@ -291,5 +292,24 @@ func TestLegacyRedactPatternsMigrate(t *testing.T) {
 	}
 	if pgp.Pattern == `(?s)(bad-literal)` || st.Snapshot().Version != 9 {
 		t.Fatalf("pgp pattern/version not migrated: %q %d", pgp.Pattern, st.Snapshot().Version)
+	}
+}
+
+func TestStatsSnapshotIncludesCooldown(t *testing.T) {
+	st, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.RecordRoute("demo", false, []Attempt{{Provider: "p", Model: "m", Outcome: "rate_limit"}})
+	st.SetTargetCooldown("p", "m", time.Now().Add(time.Minute))
+	stats := st.StatsSnapshot([]string{"demo"})
+	targets := stats["demo"].Targets
+	if len(targets) != 1 {
+		t.Fatalf("targets = %+v", targets)
+	}
+	for _, target := range targets {
+		if target.CooldownUntil == "" {
+			t.Fatal("cooldown was not included in stats")
+		}
 	}
 }

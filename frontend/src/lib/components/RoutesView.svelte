@@ -16,8 +16,27 @@
 	let testingAlias = '';
 	let testResults = {};
 	let form = blankForm();
+	let now = Date.now();
 
-	onMount(load);
+	onMount(() => {
+		load();
+		const timer = setInterval(() => (now = Date.now()), 1000);
+		const refresh = setInterval(refreshStats, 5000);
+		return () => {
+			clearInterval(timer);
+			clearInterval(refresh);
+		};
+	});
+
+	async function refreshStats() {
+		if (showModal) return;
+		try {
+			const data = await api.get('/api/routes');
+			items = data.routes || [];
+		} catch {
+			// Keep the current stats if refreshing fails.
+		}
+	}
 
 	function blankForm() {
 		return { id: '', alias: '', note: '', enabled: true, targets: [] };
@@ -159,6 +178,14 @@
 	function pct(value) {
 		return `${Number(value || 0).toFixed(1)}%`;
 	}
+
+	function cooldownSeconds(st, current) {
+		const now = current;
+		if (!st?.cooldown_until) return 0;
+		const until = Date.parse(st.cooldown_until);
+		if (Number.isNaN(until)) return 0;
+		return Math.max(0, Math.ceil((until - current) / 1000));
+	}
 </script>
 
 <div class="page-toolbar">
@@ -250,6 +277,9 @@
 									<span>{$t('routes.hits')} {st.success}</span>
 									<span>{$t('routes.rateLimited')} {st.rate_limited}</span>
 									<span>{$t('routes.errors')} {st.errors}</span>
+									{#if cooldownSeconds(st, now) > 0}
+										<span class="cooldown-badge"><Icon name="clock" size={11} />{$t('routes.cooldown')} {cooldownSeconds(st, now)}s</span>
+									{/if}
 								</div>
 							</div>
 							<div class="hit">
@@ -493,9 +523,21 @@
 		display: flex;
 		gap: 10px;
 		flex-wrap: wrap;
+		align-items: center;
 		font-size: 9.5px;
 		color: var(--muted);
 		margin-top: 3px;
+	}
+	.cooldown-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 2px 7px;
+		border-radius: 999px;
+		background: var(--warning-soft);
+		color: var(--warning);
+		font-weight: 650;
+		font-variant-numeric: tabular-nums;
 	}
 	.hit {
 		display: grid;

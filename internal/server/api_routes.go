@@ -50,6 +50,7 @@ func statsView(alias string, rs config.RouteStats) map[string]any {
 		targets = append(targets, map[string]any{
 			"provider": t.Provider, "model": t.Model, "attempts": t.Attempts, "success": t.Success,
 			"errors": t.Errors, "rate_limited": t.RateLimit, "hit_rate": hitRate, "success_rate": successRate,
+			"cooldown_until": t.CooldownUntil,
 		})
 	}
 	sort.Slice(targets, func(i, j int) bool {
