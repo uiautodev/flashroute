@@ -6,6 +6,8 @@
 	import Icon from './Icon.svelte';
 	import claudeLogo from '#lib/assets/claude-code.svg?url';
 	import opencodeLogo from '#lib/assets/opencode.svg?url';
+	import piLogo from '#lib/assets/pi.svg?url';
+	import codexLogo from '#lib/assets/codex.svg?url';
 
 	let agents = [];
 	let models = [];
@@ -66,7 +68,7 @@
 		}
 	}
 
-	const agentLogos = { claude: claudeLogo, opencode: opencodeLogo };
+	const agentLogos = { claude: claudeLogo, opencode: opencodeLogo, pi: piLogo, codex: codexLogo };
 </script>
 
 <div class="agents-page">
@@ -132,7 +134,7 @@
 								></button>
 							</div>
 						</div>
-						<p class="agent-hint">{$t(agent.id === 'claude' ? 'agents.claudeHint' : 'agents.opencodeHint')}</p>
+						<p class="agent-hint">{$t(agent.id === 'claude' ? 'agents.claudeHint' : agent.id === 'pi' ? 'agents.piHint' : agent.id === 'codex' ? 'agents.codexHint' : 'agents.opencodeHint')}</p>
 						<div class="agent-config">
 							<span class="config-label">{$t('agents.configFile')}</span>
 							<code class="mono">{agent.path}</code>

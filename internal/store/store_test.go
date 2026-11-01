@@ -313,3 +313,26 @@ func TestStatsSnapshotIncludesCooldown(t *testing.T) {
 		}
 	}
 }
+
+func TestRedactionRecordsGroupDuplicates(t *testing.T) {
+	st, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.RecordRedactions([]redact.Hit{
+		{RuleID: "email", RuleName: "Email addresses", Original: "a@example.com", Replacement: "z@example.com"},
+		{RuleID: "email", RuleName: "Email addresses", Original: "a@example.com", Replacement: "z@example.com"},
+		{RuleID: "email", RuleName: "Email addresses", Original: "b@example.com", Replacement: "y@example.com"},
+	})
+	records := st.RedactionRecords("email", 10)
+	if len(records) != 2 {
+		t.Fatalf("records = %+v, want 2 groups", records)
+	}
+	counts := map[string]int64{}
+	for _, record := range records {
+		counts[record.Original] = record.Count
+	}
+	if counts["a@example.com"] != 2 || counts["b@example.com"] != 1 {
+		t.Fatalf("counts = %+v", counts)
+	}
+}

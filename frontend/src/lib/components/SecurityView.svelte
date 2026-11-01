@@ -21,6 +21,8 @@
 	let recordsLoading = false;
 	let expandedGroups = {};
 
+	$: totalHits = Object.values(counts).reduce((sum, count) => sum + Number(count || 0), 0);
+
 	$: groupedRules = groupRules(rules);
 	$: groupTotals = Object.fromEntries(groupedRules.map((group) => [group.name, group.rules.reduce((sum, rule) => sum + (counts[rule.id] || 0), 0)]));
 
@@ -155,10 +157,11 @@
 <section class="card card-pad">
 	<div class="section-head">
 		<div class="section-icon"><Icon name="shield" size={17} /></div>
-		<div>
+		<div class="section-head-text">
 			<h2>{$t('security.redactTitle')}</h2>
 			<p>{$t('security.redactHint')}</p>
 		</div>
+		<span class="total-hits">{$t('security.totalHits')} {totalHits}</span>
 	</div>
 	<div class="divider"></div>
 	<div class="redact-switch">
@@ -277,7 +280,10 @@
 							<span>→</span>
 							<code class="record-replacement">{record.replacement}</code>
 						</div>
-						<span class="record-time">{formatTime(record.created_at)}</span>
+						<div class="record-side">
+							{#if record.count > 1}<span class="record-count">×{record.count}</span>{/if}
+							<span class="record-time">{formatTime(record.created_at)}</span>
+						</div>
 					</div>
 				{/each}
 			</div>
@@ -290,6 +296,21 @@
 		display: flex;
 		gap: 11px;
 		align-items: flex-start;
+	}
+	.section-head-text {
+		flex: 1;
+		min-width: 0;
+	}
+	.total-hits {
+		flex: none;
+		padding: 4px 9px;
+		border-radius: 999px;
+		background: var(--accent-soft);
+		color: var(--accent);
+		font-size: 10.5px;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
 	}
 	.section-icon {
 		width: 34px;
@@ -474,6 +495,21 @@
 	}
 	.record-replacement {
 		color: var(--accent);
+	}
+	.record-side {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex: none;
+	}
+	.record-count {
+		font-size: 10px;
+		font-weight: 700;
+		color: var(--accent);
+		background: var(--accent-soft);
+		border-radius: 999px;
+		padding: 2px 7px;
+		font-variant-numeric: tabular-nums;
 	}
 	.record-time {
 		flex: none;

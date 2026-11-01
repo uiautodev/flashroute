@@ -252,18 +252,30 @@ func (r *Redactor) Restore(value string) string {
 	}
 	sort.Slice(tags, func(i, j int) bool { return len(tags[i]) > len(tags[j]) })
 	pairs := make([]string, 0, len(tags)*2)
-	for _, tag := range tags {
-		pairs = append(pairs, tag, r.reverse[tag])
+	placeholders := make([]string, len(tags))
+	for i, tag := range tags {
+		placeholders[i] = fmt.Sprintf("\x00fr%d\x00", i)
+		pairs = append(pairs, tag, placeholders[i])
 	}
-	replacer := strings.NewReplacer(pairs...)
-	for i := 0; i < 8; i++ {
-		next := replacer.Replace(value)
-		if next == value {
-			return value
+	staged := strings.NewReplacer(pairs...).Replace(value)
+	restored := make([]string, 0, len(tags)*2)
+	for i, tag := range tags {
+		restored = append(restored, placeholders[i], r.resolve(tag))
+	}
+	return strings.NewReplacer(restored...).Replace(staged)
+}
+
+func (r *Redactor) resolve(tag string) string {
+	seen := map[string]bool{}
+	current := tag
+	for {
+		original, ok := r.reverse[current]
+		if !ok || seen[current] {
+			return current
 		}
-		value = next
+		seen[current] = true
+		current = original
 	}
-	return value
 }
 
 func (r *Redactor) RestoreValue(value any) any {

@@ -118,6 +118,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("OPTIONS /v1/", s.handleOptions)
 	s.mux.HandleFunc("GET /v1/models", s.gatewayAuth(s.handleGatewayModels))
 	s.mux.HandleFunc("POST /v1/chat/completions", s.gatewayAuth(s.handleGatewayChat))
+	s.mux.HandleFunc("POST /v1/messages", s.gatewayAuth(s.handleGatewayAnthropicMessages))
+	s.mux.HandleFunc("POST /v1/responses", s.gatewayAuth(s.handleGatewayResponses))
 
 	s.mux.HandleFunc("GET /", s.handleStatic)
 }
@@ -154,7 +156,11 @@ func (s *Server) gatewayAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		if key == "" || !s.store.ValidateAPIKey(key) {
 			setCORS(w)
-			gateway.OpenAIError(w, http.StatusUnauthorized, "invalid or missing FlashRoute API key", "authentication_error")
+			if strings.HasPrefix(r.URL.Path, "/v1/messages") {
+				gateway.AnthropicError(w, http.StatusUnauthorized, "invalid or missing FlashRoute API key", "authentication_error")
+			} else {
+				gateway.OpenAIError(w, http.StatusUnauthorized, "invalid or missing FlashRoute API key", "authentication_error")
+			}
 			return
 		}
 		setCORS(w)
@@ -185,7 +191,7 @@ func recoverMiddleware(next http.Handler) http.Handler {
 
 func setCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key, Anthropic-Version, Anthropic-Beta, Anthropic-Dangerous-Direct-Browser-Access")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 }
 

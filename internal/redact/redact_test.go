@@ -35,6 +35,28 @@ func TestMaskAndRestore(t *testing.T) {
 	}
 }
 
+func TestRestoreDoesNotReprocessRestoredText(t *testing.T) {
+	r := &Redactor{reverse: map[string]string{
+		"826978": "123456",
+		"34":     "01",
+	}}
+	got := r.Restore("key AAA-826978 and sss-34 done")
+	want := "key AAA-123456 and sss-01 done"
+	if got != want {
+		t.Fatalf("restored = %q, want %q", got, want)
+	}
+}
+
+func TestRestoreFollowsTagChains(t *testing.T) {
+	r := &Redactor{reverse: map[string]string{
+		"first":  "second",
+		"second": "original",
+	}}
+	if got := r.Restore("value first value"); got != "value original value" {
+		t.Fatalf("restored = %q", got)
+	}
+}
+
 func TestMaskPreservesFormat(t *testing.T) {
 	original := "key sk-123456 end"
 	r := Compile([]config.RedactRule{{Pattern: config.APIKeyRedactPattern, Enabled: true}})

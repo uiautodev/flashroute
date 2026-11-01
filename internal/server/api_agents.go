@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/uiautodev/flashroute/internal/agents"
@@ -50,21 +49,14 @@ func (s *Server) handleApplyAgent(w http.ResponseWriter, r *http.Request) {
 		GatewayBaseURL: s.gatewayBaseURL(r),
 		GatewayAPIKey:  key,
 	}
-	_, targets, err := s.gw.Resolve(body.Model)
-	if err != nil {
+	if _, _, err := s.gw.Resolve(body.Model); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if body.Agent == "claude" {
-		target := targets[0]
-		base, ok := anthropicEndpoint(target.Provider)
-		if !ok || strings.TrimSpace(target.Provider.APIKey) == "" {
-			writeError(w, http.StatusBadRequest, "Claude Code requires an Anthropic-compatible provider")
-			return
-		}
-		opts.ClaudeBaseURL = base
-		opts.ClaudeAPIKey = target.Provider.APIKey
-		opts.ClaudeModel = target.Model
+		opts.ClaudeBaseURL = s.gatewayBaseURL(r)
+		opts.ClaudeAPIKey = key
+		opts.ClaudeModel = body.Model
 	}
 	result, err := s.agents.Apply(opts)
 	if err != nil {
@@ -133,25 +125,4 @@ func availableModelIDs(cfg config.Config) []string {
 		}
 	}
 	return out
-}
-
-func anthropicEndpoint(provider config.Provider) (string, bool) {
-	base := strings.TrimRight(strings.TrimSpace(provider.BaseURL), "/")
-	u, err := url.Parse(base)
-	if err != nil || u.Host == "" {
-		return "", false
-	}
-	host := strings.ToLower(u.Host)
-	switch {
-	case strings.Contains(host, "deepseek.com"):
-		return u.Scheme + "://" + u.Host + "/anthropic", true
-	case strings.Contains(strings.ToLower(u.Path), "anthropic"):
-		return base, true
-	case provider.APIType == "anthropic":
-		return strings.TrimSuffix(base, "/v1"), true
-	case u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost":
-		return base + "/anthropic", true
-	default:
-		return "", false
-	}
 }

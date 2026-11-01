@@ -232,6 +232,92 @@ func (g *Gateway) Execute(ctx context.Context, model string, payload []byte, rec
 	return nil, lastErr
 }
 
+func (g *Gateway) ExecuteResponses(ctx context.Context, model string, payload []byte, record bool) (*ProxyResponse, error) {
+	alias, targets, err := g.Resolve(model)
+	if err != nil {
+		return nil, err
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &obj); err != nil {
+		return nil, fmt.Errorf("invalid JSON body: %w", err)
+	}
+	redactor := g.redactResponses(obj)
+	attempts := make([]store.Attempt, 0, len(targets))
+	var lastErr error
+	for i, target := range targets {
+		if until := g.Store.TargetCooldown(target.Provider.ID, target.Model); until.After(time.Now()) {
+			lastErr = fmt.Errorf("%s/%s is cooling down until %s", target.Provider.ID, target.Model, until.Format(time.RFC3339))
+			continue
+		}
+		modelJSON, _ := json.Marshal(target.Model)
+		obj["model"] = modelJSON
+		body, _ := json.Marshal(obj)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint(target.Provider.BaseURL, "responses"), bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		g.http.setHeaders(req, target.Provider)
+		resp, err := g.http.clientFor(target.Provider).Do(req)
+		if err != nil {
+			attempts = append(attempts, store.Attempt{Provider: target.Provider.ID, Model: target.Model, Outcome: "error"})
+			lastErr = err
+			continue
+		}
+		outcome := "success"
+		switch {
+		case resp.StatusCode >= 200 && resp.StatusCode < 300:
+			g.Store.ClearTargetCooldown(target.Provider.ID, target.Model)
+		case resp.StatusCode == http.StatusTooManyRequests:
+			outcome = "rate_limit"
+			g.Store.SetTargetCooldown(target.Provider.ID, target.Model, time.Now().Add(rateLimitCooldown))
+		default:
+			outcome = "error"
+		}
+		if outcome == "success" && redactor.HasMappings() {
+			if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
+				resp.Body = restoreResponsesSSE(resp.Body, redactor)
+				resp.ContentLength = -1
+			} else {
+				raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+				resp.Body.Close()
+				if readErr != nil {
+					outcome = "error"
+					lastErr = readErr
+					resp = errorResponse(http.StatusBadGateway, readErr.Error())
+				} else {
+					if restored, ok := redactor.RestoreJSON(raw); ok {
+						raw = restored
+					} else {
+						raw = []byte(redactor.Restore(string(raw)))
+					}
+					resp.Body = io.NopCloser(bytes.NewReader(raw))
+					resp.ContentLength = int64(len(raw))
+					resp.Header.Set("Content-Type", "application/json")
+				}
+			}
+		}
+		attempts = append(attempts, store.Attempt{Provider: target.Provider.ID, Model: target.Model, Outcome: outcome})
+		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 ||
+			resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed
+		if outcome == "success" || !retryable || i == len(targets)-1 {
+			if record {
+				g.Store.RecordRoute(alias, outcome == "success", attempts)
+			}
+			return &ProxyResponse{Response: resp, Model: target.Model, Alias: alias, Provider: target.Provider, Attempts: attempts}, nil
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 32<<10))
+		resp.Body.Close()
+		lastErr = fmt.Errorf("%s/%s returned HTTP %d", target.Provider.ID, target.Model, resp.StatusCode)
+	}
+	if record {
+		g.Store.RecordRoute(alias, false, attempts)
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no upstream target available")
+	}
+	return nil, lastErr
+}
+
 func (g *Gateway) Complete(ctx context.Context, model string, payload []byte, record bool) (*Completion, error) {
 	start := time.Now()
 	resp, err := g.Execute(ctx, model, payload, record)

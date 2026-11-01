@@ -493,6 +493,7 @@ type RedactionRecord struct {
 	RuleName    string `json:"rule_name"`
 	Original    string `json:"original"`
 	Replacement string `json:"replacement"`
+	Count       int64  `json:"count"`
 	CreatedAt   string `json:"created_at"`
 }
 
@@ -544,14 +545,15 @@ func (s *Store) RedactionRecords(ruleID string, limit int) []RedactionRecord {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	query := `SELECT id, rule_id, rule_name, original, replacement, created_at
+	query := `SELECT MAX(id), rule_id, rule_name, original, replacement, COUNT(*), MAX(created_at)
 		FROM redactions WHERE created_at >= ?`
 	args := []any{redactionCutoff()}
 	if ruleID != "" {
 		query += ` AND rule_id = ?`
 		args = append(args, ruleID)
 	}
-	query += ` ORDER BY id DESC LIMIT ?`
+	query += ` GROUP BY rule_id, rule_name, original, replacement
+		ORDER BY MAX(created_at) DESC, MAX(id) DESC LIMIT ?`
 	args = append(args, limit)
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
@@ -561,7 +563,7 @@ func (s *Store) RedactionRecords(ruleID string, limit int) []RedactionRecord {
 	var out []RedactionRecord
 	for rows.Next() {
 		var item RedactionRecord
-		if err := rows.Scan(&item.ID, &item.RuleID, &item.RuleName, &item.Original, &item.Replacement, &item.CreatedAt); err == nil {
+		if err := rows.Scan(&item.ID, &item.RuleID, &item.RuleName, &item.Original, &item.Replacement, &item.Count, &item.CreatedAt); err == nil {
 			out = append(out, item)
 		}
 	}

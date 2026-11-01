@@ -21,6 +21,68 @@ func (g *Gateway) redactMessages(obj map[string]json.RawMessage) *redact.Redacto
 	return redactor
 }
 
+func (g *Gateway) redactResponses(obj map[string]json.RawMessage) *redact.Redactor {
+	if !g.Store.RedactionEnabled() {
+		return redact.Compile(nil)
+	}
+	redactor := redact.CompileWithSecret(g.Store.RedactRules(), g.Store.SessionSecret())
+	redactor.StartRecording()
+	for _, key := range []string{"instructions", "input", "tools"} {
+		raw, ok := obj[key]
+		if !ok {
+			continue
+		}
+		var value any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			continue
+		}
+		body, err := json.Marshal(redactor.MaskValue(value))
+		if err != nil {
+			continue
+		}
+		obj[key] = body
+	}
+	g.Store.RecordRedactions(redactor.Hits())
+	return redactor
+}
+
+func restoreResponsesSSE(src io.ReadCloser, redactor *redact.Redactor) io.ReadCloser {
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		defer src.Close()
+		scanner := bufio.NewScanner(src)
+		scanner.Buffer(make([]byte, 64<<10), 4<<20)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data:") {
+				_, _ = fmt.Fprintf(pw, "%s\n", line)
+				continue
+			}
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if data == "" || data == "[DONE]" {
+				_, _ = fmt.Fprintf(pw, "data: %s\n", data)
+				continue
+			}
+			var value any
+			if err := json.Unmarshal([]byte(data), &value); err != nil {
+				_, _ = fmt.Fprintf(pw, "data: %s\n", data)
+				continue
+			}
+			body, err := json.Marshal(redactor.RestoreValue(value))
+			if err != nil {
+				_, _ = fmt.Fprintf(pw, "data: %s\n", data)
+				continue
+			}
+			_, _ = fmt.Fprintf(pw, "data: %s\n", body)
+		}
+		if err := scanner.Err(); err != nil {
+			_ = pw.CloseWithError(err)
+		}
+	}()
+	return pr
+}
+
 func restoreSSEBody(src io.ReadCloser, redactor *redact.Redactor) io.ReadCloser {
 	pr, pw := io.Pipe()
 	go func() {

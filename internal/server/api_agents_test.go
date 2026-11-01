@@ -37,6 +37,12 @@ func TestAgentDetectionAndApplyAPI(t *testing.T) {
 	if _, err := st.SetProviderModels("mock", []config.Model{{ID: "chat"}}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.UpsertRoute(config.Route{
+		Alias: "chatroute", Enabled: true,
+		Targets: []config.RouteTarget{{ProviderID: "mock", Model: "chat"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	h := New(st, gateway.New(st), Options{
 		Agents:          agents.New(home),
 		GatewayEndpoint: "http://127.0.0.1:8080",
@@ -50,7 +56,7 @@ func TestAgentDetectionAndApplyAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Agents) != 2 || !list.Agents[0].Detected || !list.Agents[1].Detected || len(list.Models) != 1 {
+	if len(list.Agents) != 4 || !list.Agents[0].Detected || !list.Agents[1].Detected || len(list.Models) != 2 {
 		t.Fatalf("agents = %+v models = %+v", list.Agents, list.Models)
 	}
 
@@ -80,17 +86,18 @@ func TestAgentDetectionAndApplyAPI(t *testing.T) {
 		}
 	}
 
-	doAPI(t, h, http.MethodPost, "/api/agents/apply", map[string]any{"agent": "claude", "model": "mock/chat"})
+	doAPI(t, h, http.MethodPost, "/api/agents/apply", map[string]any{"agent": "claude", "model": "chatroute"})
 	data, _ = os.ReadFile(claude)
 	var settings map[string]any
 	if err := json.Unmarshal(data, &settings); err != nil {
 		t.Fatal(err)
 	}
 	env := settings["env"].(map[string]any)
-	if env["ANTHROPIC_MODEL"] != "chat" || env["ANTHROPIC_AUTH_TOKEN"] != "provider-key" {
+	keys := st.Snapshot().APIKeys
+	if len(keys) == 0 || env["ANTHROPIC_AUTH_TOKEN"] != keys[0].Key {
 		t.Fatalf("claude env = %+v", env)
 	}
-	if env["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:9999/v1/anthropic" {
-		t.Fatalf("claude base = %v", env["ANTHROPIC_BASE_URL"])
+	if env["ANTHROPIC_MODEL"] != "chatroute" || env["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:8080" {
+		t.Fatalf("claude env = %+v", env)
 	}
 }
