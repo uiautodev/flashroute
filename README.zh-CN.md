@@ -4,6 +4,8 @@
 
 [English](README.md) | 简体中文
 
+**下载地址：** [GitHub Releases](https://github.com/uiautodev/flashroute/releases)
+
 [![download](https://img.shields.io/github/v/release/uiautodev/flashroute?label=download&style=flat-square)](https://github.com/uiautodev/flashroute/releases/latest)
 
 ![FlashRoute home](docs/home.png)

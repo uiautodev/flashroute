@@ -4,6 +4,8 @@ A compact AI gateway and chat console built with Go and SvelteKit. It aggregates
 
 English | [简体中文](README.zh-CN.md)
 
+**Download:** [GitHub Releases](https://github.com/uiautodev/flashroute/releases)
+
 [![download](https://img.shields.io/github/v/release/uiautodev/flashroute?label=download&style=flat-square)](https://github.com/uiautodev/flashroute/releases/latest)
 
 ![FlashRoute home](docs/home.png)
