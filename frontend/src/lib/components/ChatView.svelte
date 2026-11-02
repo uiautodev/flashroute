@@ -48,9 +48,18 @@
 	$: hasModels = routes.length > 0 || direct.length > 0;
 	$: canSend = model && (text.trim() || attachments.length > 0) && !editingID;
 
-	onMount(() => () => {
-		document.documentElement.classList.remove('chat-fullscreen');
-		document.documentElement.classList.remove('chat-history-open');
+	onMount(() => {
+		const handleShortcut = (event) => {
+			if (event.code !== 'KeyN' || !(event.metaKey || event.ctrlKey) || event.altKey) return;
+			event.preventDefault();
+			newChat(event.shiftKey);
+		};
+		window.addEventListener('keydown', handleShortcut);
+		return () => {
+			window.removeEventListener('keydown', handleShortcut);
+			document.documentElement.classList.remove('chat-fullscreen');
+			document.documentElement.classList.remove('chat-history-open');
+		};
 	});
 
 	onMount(async () => {
@@ -87,8 +96,9 @@
 		localStorage.setItem('flashroute.model', model);
 	}
 
-	async function newChat() {
+	async function newChat(privateMode = false) {
 		closeHistory();
+		privacy = privateMode;
 		current = null;
 		messages = [];
 		error = '';
@@ -609,7 +619,7 @@
 				>
 					<Icon name="trash" size={14} />
 				</button>
-				<button class="btn btn-sm btn-primary" onclick={newChat} title={$t('chat.newChat')}>
+				<button class="btn btn-sm btn-primary" onclick={() => newChat()} title={$t('chat.newChat')}>
 					<Icon name="plus" size={14} />
 					{$t('chat.newChat')}
 				</button>
@@ -659,6 +669,17 @@
 	<section class="chat-panel card">
 		<header class="chat-head">
 			<div class="chat-head-main">
+				{#if fullscreen}
+					<button
+						class="btn btn-ghost btn-icon history-toggle"
+						onclick={toggleHistory}
+						title={$t('chat.history')}
+						aria-label={$t('chat.history')}
+						aria-expanded={historyOpen}
+					>
+						<Icon name="clock" size={16} />
+					</button>
+				{/if}
 				<div class="model-select-wrap">
 					<div class="chat-head-label-row">
 						<span class="chat-head-label">{$t('chat.model')}</span>
@@ -705,16 +726,7 @@
 					<span class="privacy-state">{privacy ? $t('chat.privacyOn') : $t('chat.privacyOff')}</span>
 				</div>
 				{#if fullscreen}
-					<button
-						class="btn btn-ghost btn-icon"
-						onclick={toggleHistory}
-						title={$t('chat.history')}
-						aria-label={$t('chat.history')}
-						aria-expanded={historyOpen}
-					>
-						<Icon name="clock" size={16} />
-					</button>
-					<button class="btn btn-ghost btn-icon" onclick={newChat} title={$t('chat.newChat')} aria-label={$t('chat.newChat')}>
+					<button class="btn btn-ghost btn-icon" onclick={() => newChat()} title={$t('chat.newChat')} aria-label={$t('chat.newChat')}>
 						<Icon name="plus" size={16} />
 					</button>
 				{/if}
@@ -894,7 +906,7 @@
 						{/each}
 					</div>
 				{/if}
-				<div class="composer-box">
+				<div class="composer-box" class:private={privacy}>
 					<button class="btn btn-ghost btn-icon attach-btn" onclick={() => fileInput?.click()} title={$t('chat.attach')}>
 						<Icon name="image" size={18} />
 					</button>
@@ -1124,8 +1136,13 @@
 	.chat-head-main {
 		display: flex;
 		align-items: center;
-		gap: 14px;
+		gap: 10px;
 		min-width: 0;
+	}
+	.history-toggle {
+		flex: none;
+		align-self: flex-end;
+		margin-bottom: 1px;
 	}
 	.chat-head-label-row {
 		display: flex;
@@ -1582,6 +1599,14 @@
 	.composer-box:focus-within {
 		border-color: var(--accent-border-strong);
 		box-shadow: 0 0 0 3px var(--accent-ring);
+	}
+	.composer-box.private {
+		background: var(--warning-soft);
+		border-color: rgba(251, 191, 36, 0.28);
+	}
+	.composer-box.private:focus-within {
+		border-color: var(--warning);
+		box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.12);
 	}
 	.attach-btn {
 		margin-bottom: 1px;

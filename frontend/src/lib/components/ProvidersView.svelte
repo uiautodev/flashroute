@@ -1,5 +1,5 @@
 <script>
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { api } from '#lib/api.js';
 	import { t } from '#lib/i18n.js';
 	import { toast } from '#lib/toast.js';
@@ -25,6 +25,9 @@
 	let proxyTesting = false;
 	let proxyResult = null;
 	let keyFocused = false;
+	let nameTouched = false;
+	let idTouched = false;
+	let autoSyncTimer;
 	let form = blankForm();
 	let modelText = '';
 	let availableModels = [];
@@ -96,6 +99,8 @@
 		modelTab = 'list';
 		proxyResult = null;
 		keyFocused = false;
+		nameTouched = false;
+		idTouched = false;
 		showModal = true;
 	}
 
@@ -114,6 +119,26 @@
 
 	function applyPreset(preset) {
 		form = { ...form, id: preset.id, name: preset.name, base_url: preset.base_url, api_type: 'completions', enabled: true };
+		nameTouched = true;
+		idTouched = true;
+	}
+
+	function baseURLHost(value) {
+		try {
+			const url = new URL(String(value || '').trim());
+			if ((url.protocol !== 'http:' && url.protocol !== 'https:') || !url.hostname) return '';
+			return url.hostname.toLowerCase();
+		} catch {
+			return '';
+		}
+	}
+
+	function fillIdentityFromBaseURL() {
+		if (editing) return;
+		const host = baseURLHost(form.base_url);
+		if (!host) return;
+		if (!nameTouched) form.name = host;
+		if (!idTouched) form.id = host;
 	}
 
 	function parseModels(text) {
@@ -166,8 +191,8 @@
 		}
 	}
 
-	async function syncModels() {
-		if (!form.base_url) return;
+	async function syncModels(auto = false) {
+		if (!form.base_url || syncing) return;
 		syncing = true;
 		try {
 			const result = await api.post('/api/providers/test', {
@@ -176,14 +201,14 @@
 				test_model: false
 			});
 			if (!result.ok) {
-				toast(result.error || $t('providers.connectionFailed'), 'error', 5000);
+				toast(result.error || $t('providers.connectionFailed'), 'error', auto ? 3000 : 5000);
 				return;
 			}
 			availableModels = result.models || [];
 			if (modelTab === 'list') modelText = availableModels.map((model) => model.id).join('\n');
-			toast($t('providers.modelsSyncedCandidates', { count: result.models_count ?? availableModels.length }), 'success');
+			toast($t('providers.modelsSyncedCandidates', { count: result.models_count ?? availableModels.length }), 'success', auto ? 3000 : undefined);
 		} catch (err) {
-			toast(err.message, 'error', 5000);
+			toast(err.message, 'error', auto ? 3000 : 5000);
 		} finally {
 			syncing = false;
 		}
@@ -268,6 +293,15 @@
 		? form.base_url.replace(/\/+$/, '') +
 			(form.api_type === 'responses' ? '/responses' : form.api_type === 'anthropic' ? '/messages' : '/chat/completions')
 		: '';
+	$: scheduleAutoSync(showModal, editing, form.base_url, form.api_key);
+
+	function scheduleAutoSync(open, editingProvider, baseURL, apiKey) {
+		clearTimeout(autoSyncTimer);
+		if (!open || editingProvider || !baseURL || !apiKey) return;
+		autoSyncTimer = setTimeout(() => syncModels(true), 700);
+	}
+
+	onDestroy(() => clearTimeout(autoSyncTimer));
 </script>
 
 <div class="page-toolbar">
@@ -430,19 +464,19 @@
 			</div>
 		{/if}
 		<div class="form-grid">
-			<div class="field">
-				<label for="provider-name">{$t('common.name')}<span class="required-mark" aria-hidden="true">*</span></label>
-				<input id="provider-name" class="input" bind:value={form.name} placeholder="DeepSeek" />
-			</div>
-			<div class="field">
-				<label for="provider-id">{$t('providers.id')}<span class="required-mark" aria-hidden="true">*</span></label>
-				<input id="provider-id" class="input mono" bind:value={form.id} disabled={editing} placeholder="ds" />
-				<span class="hint">{$t('providers.idHint')}</span>
-			</div>
 			<div class="field full">
 				<label for="provider-base">{$t('providers.baseUrl')}<span class="required-mark" aria-hidden="true">*</span></label>
 				<div class="input-group">
-					<input id="provider-base" class="input mono" bind:value={form.base_url} placeholder="https://api.deepseek.com/v1" />
+					<input
+						id="provider-base"
+						class="input mono"
+						value={form.base_url}
+						placeholder="https://api.deepseek.com/v1"
+						oninput={(event) => {
+							form.base_url = event.currentTarget.value;
+							fillIdentityFromBaseURL();
+						}}
+					/>
 					<select
 						id="provider-api-type"
 						class="select api-type-select"
@@ -476,6 +510,34 @@
 					<CopyButton value={form.api_key} size={14} buttonClass="btn input-group-btn" />
 				</div>
 				<span class="hint">{$t('providers.apiKeyHint')}</span>
+			</div>
+			<div class="field">
+				<label for="provider-name">{$t('common.name')}<span class="required-mark" aria-hidden="true">*</span></label>
+				<input
+					id="provider-name"
+					class="input"
+					value={form.name}
+					placeholder="DeepSeek"
+					oninput={(event) => {
+						form.name = event.currentTarget.value;
+						nameTouched = true;
+					}}
+				/>
+			</div>
+			<div class="field">
+				<label for="provider-id">{$t('providers.id')}<span class="required-mark" aria-hidden="true">*</span></label>
+				<input
+					id="provider-id"
+					class="input mono"
+					value={form.id}
+					disabled={editing}
+					placeholder="ds"
+					oninput={(event) => {
+						form.id = event.currentTarget.value;
+						idTouched = true;
+					}}
+				/>
+				<span class="hint">{$t('providers.idHint')}</span>
 			</div>
 			<div class="field full">
 				<div class="field-title-row">

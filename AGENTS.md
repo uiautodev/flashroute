@@ -4,6 +4,8 @@
 
 Every change must be verified before it is considered done.
 
+Always test after every change. Do not report completion, commit, or release until the relevant checks have passed. If a check cannot be run, say so explicitly.
+
 1. Backend changes: add or update Go unit tests and run `go test ./...`.
 2. Frontend changes: run `cd frontend && npm run build`.
 3. User-facing changes: verify the actual flow with Playwright (`playwright-cli`) against a temporary backend and the Vite dev server.
