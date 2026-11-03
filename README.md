@@ -27,7 +27,7 @@ English | [简体中文](README.zh-CN.md)
 - **Languages and themes**: Chinese / English, dark / light / follow system.
 - **Access control**: localhost and desktop sessions need no password; remote access must set one. Use `-require-auth` behind a local reverse proxy.
 - **Single binary**: SvelteKit assets are embedded with `go:embed`.
-- **Desktop app**: optional Wails v3 shell reusing the same Go HTTP handler and frontend; it serves the OpenAI-compatible gateway on `http://127.0.0.1:11211` by default (configurable), and macOS streaming is supported through the Wails v3 asset server. Closing the window keeps the app running in the menu bar; click the menu bar icon to reopen it or right-click to quit.
+- **Desktop app**: optional Wails v3 shell reusing the same Go HTTP handler and frontend; it serves the OpenAI-compatible gateway on `http://127.0.0.1:11211` by default (configurable), and macOS streaming is supported through the Wails v3 asset server. Closing the window keeps the app running in the menu bar; click the menu bar icon to reopen it, or right-click to check for updates or quit.
 - **Agent integrations**: detect Claude Code, Codex, OpenCode and Pi, then apply the selected chat model with one click. Claude Code uses FlashRoute's Anthropic-compatible gateway; Codex uses the Responses API; OpenCode and Pi get FlashRoute as an OpenAI-compatible provider. All requests go through the selected route alias or model.
 - **In-app updates**: check the latest GitHub release from Settings, verify the downloaded asset with `SHA256SUMS`, install it and restart automatically. macOS desktop builds update the app bundle and re-sign it ad hoc.
 
@@ -216,7 +216,7 @@ FLASHROUTE_UPDATE_MANIFEST_URL=https://mirror.example/flashroute/update.json
 FLASHROUTE_UPDATE_BASE_URL=https://mirror.example/flashroute
 ```
 
-`FLASHROUTE_UPDATE_MANIFEST_URL` points to the manifest, and `FLASHROUTE_UPDATE_BASE_URL` is used for `v<version>/<asset-name>` downloads and the legacy `SHA256SUMS` fallback. For a GitHub API relay, set `FLASHROUTE_UPDATE_API`; `FLASHROUTE_UPDATE_TOKEN` adds a bearer token. `FLASHROUTE_UPDATE_LATEST_URL` and `FLASHROUTE_UPDATE_FEED` can override the redirect and Atom endpoints. Standard `HTTP_PROXY` / `HTTPS_PROXY` environment variables are respected.
+`FLASHROUTE_UPDATE_MANIFEST_URL` points to the manifest, and `FLASHROUTE_UPDATE_BASE_URL` is used for `v<version>/<asset-name>` downloads and the legacy `SHA256SUMS` fallback. When the UI language is Chinese, updates try the `https://gh-proxy.org/` mirror first and fall back to GitHub; set `FLASHROUTE_UPDATE_MIRROR` to use a different mirror prefix. For a GitHub API relay, set `FLASHROUTE_UPDATE_API`; `FLASHROUTE_UPDATE_TOKEN` adds a bearer token. `FLASHROUTE_UPDATE_LATEST_URL` and `FLASHROUTE_UPDATE_FEED` can override the redirect and Atom endpoints. Standard `HTTP_PROXY` / `HTTPS_PROXY` environment variables are respected.
 ## Chat web search
 
 The chat header has a **Web search** switch, on by default. When enabled, the model gets `web_search` and `web_fetch` function tools and decides when to call them. If a DeepSeek provider is configured, the tools use the DeepSeek Search / Fetch APIs; otherwise FlashRoute falls back to Bing search and direct page fetching. The current date and time are included in the tool prompt. When redaction is enabled, queries are redacted before they leave FlashRoute. Set `FLASHROUTE_SEARCH_URL` to use a compatible Bing or DuckDuckGo HTML endpoint or mirror for the fallback search.

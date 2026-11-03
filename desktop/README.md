@@ -16,4 +16,5 @@ Localhost and desktop sessions never require a password.
 
 Closing the window keeps FlashRoute running in the macOS menu bar. Left-click
 the menu bar icon to show and focus the window; right-click it for **Open
-FlashRoute** and **Quit FlashRoute**.
+FlashRoute**, **Check for Updates**, and **Quit FlashRoute**. The menu follows
+the UI language.

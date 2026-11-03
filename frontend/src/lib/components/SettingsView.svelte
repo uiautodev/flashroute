@@ -69,7 +69,7 @@
 		updateError = '';
 		applied = false;
 		try {
-			update = await api.get('/api/update/check');
+			update = await api.get(`/api/update/check?lang=${encodeURIComponent($lang)}`);
 		} catch (err) {
 			update = null;
 			updateError = err.message;
@@ -120,7 +120,7 @@
 		updateError = '';
 		startProgressPolling();
 		try {
-			await api.post('/api/update/apply', {});
+			await api.post('/api/update/apply', { lang: $lang });
 			update = null;
 			applied = true;
 			toast($t('settings.updateRestarting'), 'success');

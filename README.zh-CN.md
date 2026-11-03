@@ -27,7 +27,7 @@
 - **多语言与主题**：中文 / English，暗黑 / 亮色 / 跟随系统。
 - **访问控制**：localhost 和桌面版免密码；远程访问必须设置密码。反向代理场景可加 `-require-auth`。
 - **独立二进制**：SvelteKit 构建产物通过 `go:embed` 打包，单个 Go 二进制即可运行。
-- **桌面应用**：可选 Wails v3 桌面壳，复用同一套 Go HTTP handler 和前端；默认在 `http://127.0.0.1:11211` 提供 OpenAI 兼容网关（端口可自定义），macOS 通过 Wails v3 asset server 支持流式输出。关闭窗口后应用会留在菜单栏，点击菜单栏图标可重新打开，右键菜单可退出。
+- **桌面应用**：可选 Wails v3 桌面壳，复用同一套 Go HTTP handler 和前端；默认在 `http://127.0.0.1:11211` 提供 OpenAI 兼容网关（端口可自定义），macOS 通过 Wails v3 asset server 支持流式输出。关闭窗口后应用会留在菜单栏，点击菜单栏图标可重新打开，右键菜单可检查更新或退出。
 - **Agent 接入**：自动检测 Claude Code、Codex、OpenCode、Pi，选择模型后一键写入配置。Claude Code 走 Anthropic 兼容接口，Codex 走 Responses API，OpenCode 和 Pi 走 OpenAI 兼容接口，请求都会经过所选路由别名或模型。
 - **应用内更新**：在设置页检查最新 GitHub Release，使用 `SHA256SUMS` 校验下载产物，安装后自动重启。macOS 桌面版会更新应用包并重新进行 ad-hoc 签名。
 
@@ -217,7 +217,7 @@ FLASHROUTE_UPDATE_MANIFEST_URL=https://mirror.example/flashroute/update.json
 FLASHROUTE_UPDATE_BASE_URL=https://mirror.example/flashroute
 ```
 
-`FLASHROUTE_UPDATE_MANIFEST_URL` 指向 manifest，`FLASHROUTE_UPDATE_BASE_URL` 用于 `v<version>/<asset-name>` 下载和兼容旧的 `SHA256SUMS` 校验。若使用 GitHub API relay，可设置 `FLASHROUTE_UPDATE_API`，并通过 `FLASHROUTE_UPDATE_TOKEN` 添加 Bearer Token。`FLASHROUTE_UPDATE_LATEST_URL` 和 `FLASHROUTE_UPDATE_FEED` 可覆盖跳转和 Atom 地址。标准 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量同样生效。
+`FLASHROUTE_UPDATE_MANIFEST_URL` 指向 manifest，`FLASHROUTE_UPDATE_BASE_URL` 用于 `v<version>/<asset-name>` 下载和兼容旧的 `SHA256SUMS` 校验。中文界面下会优先使用 `https://gh-proxy.org/` 镜像，失败后再回退 GitHub；可通过 `FLASHROUTE_UPDATE_MIRROR` 更换镜像前缀。若使用 GitHub API relay，可设置 `FLASHROUTE_UPDATE_API`，并通过 `FLASHROUTE_UPDATE_TOKEN` 添加 Bearer Token。`FLASHROUTE_UPDATE_LATEST_URL` 和 `FLASHROUTE_UPDATE_FEED` 可覆盖跳转和 Atom 地址。标准 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量同样生效。
 ## 聊天联网搜索
 
 聊天标题栏有「联网搜索」开关，默认开启。开启后模型会获得 `web_search` 和 `web_fetch` 两个 function tool，由模型自行决定何时调用。配置了 DeepSeek 供应商时，工具优先使用 DeepSeek 的 Search / Fetch API；否则回退到 Bing 搜索和直接网页抓取。提示词中同时包含当前时间。开启脱敏时，搜索查询会先脱敏再离开 FlashRoute。可通过 `FLASHROUTE_SEARCH_URL` 为回退搜索指定兼容的 Bing 或 DuckDuckGo HTML 端点或镜像。

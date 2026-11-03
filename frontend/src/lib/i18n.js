@@ -7,6 +7,13 @@ export const lang = writable(stored || browserLang);
 lang.subscribe((value) => {
 	if (typeof localStorage !== 'undefined') localStorage.setItem('flashroute.lang', value);
 	if (typeof document !== 'undefined') document.documentElement.lang = value === 'zh' ? 'zh-CN' : 'en';
+	if (typeof window !== 'undefined') {
+		try {
+			window.runtime?.EventsEmit?.('flashroute:language', value);
+		} catch {
+			// Ignore when the Wails runtime is unavailable.
+		}
+	}
 });
 
 const messages = {

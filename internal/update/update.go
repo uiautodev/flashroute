@@ -28,6 +28,7 @@ const (
 	defaultLatestURL   = "https://github.com/uiautodev/flashroute/releases/latest"
 	defaultFeedURL     = "https://github.com/uiautodev/flashroute/releases.atom"
 	defaultDownloadURL = "https://github.com/uiautodev/flashroute/releases/download"
+	defaultMirrorURL   = "https://gh-proxy.org/"
 	checksumAsset      = "SHA256SUMS"
 	maxReleaseSize     = 1 << 20
 	maxDownloadSize    = 1 << 30
@@ -38,6 +39,7 @@ var releaseTagPattern = regexp.MustCompile(`^v?[0-9A-Za-z][0-9A-Za-z._-]*$`)
 
 type Options struct {
 	ManifestURL string
+	MirrorURL   string
 	LatestURL   string
 	FeedURL     string
 	APIURL      string
@@ -64,6 +66,7 @@ type Client struct {
 	progressMu  sync.Mutex
 	progress    Progress
 	manifestURL string
+	mirrorURL   string
 	latestURL   string
 	feedURL     string
 	apiURL      string
@@ -104,19 +107,21 @@ type Manifest struct {
 }
 
 type Info struct {
-	Current     string `json:"current"`
-	Latest      string `json:"latest"`
-	Available   bool   `json:"available"`
-	Dev         bool   `json:"dev"`
-	ReleaseURL  string `json:"release_url"`
-	Notes       string `json:"notes"`
-	PublishedAt string `json:"published_at"`
-	Asset       string `json:"asset,omitempty"`
-	AssetSize   int64  `json:"asset_size,omitempty"`
-	DownloadURL string `json:"download_url,omitempty"`
-	ChecksumURL string `json:"checksum_url,omitempty"`
-	SHA256      string `json:"-"`
-	Desktop     bool   `json:"desktop"`
+	Current             string `json:"current"`
+	Latest              string `json:"latest"`
+	Available           bool   `json:"available"`
+	Dev                 bool   `json:"dev"`
+	ReleaseURL          string `json:"release_url"`
+	Notes               string `json:"notes"`
+	PublishedAt         string `json:"published_at"`
+	Asset               string `json:"asset,omitempty"`
+	AssetSize           int64  `json:"asset_size,omitempty"`
+	DownloadURL         string `json:"download_url,omitempty"`
+	ChecksumURL         string `json:"checksum_url,omitempty"`
+	FallbackDownloadURL string `json:"-"`
+	FallbackChecksumURL string `json:"-"`
+	SHA256              string `json:"-"`
+	Desktop             bool   `json:"desktop"`
 }
 
 type Result struct {
@@ -127,6 +132,7 @@ type Result struct {
 func New(opts Options) *Client {
 	c := &Client{
 		manifestURL: strings.TrimSpace(opts.ManifestURL),
+		mirrorURL:   strings.TrimRight(strings.TrimSpace(opts.MirrorURL), "/") + "/",
 		latestURL:   strings.TrimSpace(opts.LatestURL),
 		feedURL:     strings.TrimSpace(opts.FeedURL),
 		apiURL:      strings.TrimSpace(opts.APIURL),
@@ -145,6 +151,13 @@ func New(opts Options) *Client {
 	}
 	if c.manifestURL == "" {
 		c.manifestURL = defaultManifestURL
+	}
+	if c.mirrorURL == "/" {
+		c.mirrorURL = strings.TrimSpace(os.Getenv("FLASHROUTE_UPDATE_MIRROR"))
+		if c.mirrorURL == "" {
+			c.mirrorURL = defaultMirrorURL
+		}
+		c.mirrorURL = strings.TrimRight(c.mirrorURL, "/") + "/"
 	}
 	if c.latestURL == "" {
 		c.latestURL = strings.TrimSpace(os.Getenv("FLASHROUTE_UPDATE_LATEST_URL"))
@@ -185,7 +198,11 @@ func New(opts Options) *Client {
 }
 
 func (c *Client) Check(ctx context.Context, current string) (Info, error) {
-	release, err := c.latest(ctx)
+	return c.CheckWithMirror(ctx, current, false)
+}
+
+func (c *Client) CheckWithMirror(ctx context.Context, current string, useMirror bool) (Info, error) {
+	release, err := c.latestWithMirror(ctx, useMirror)
 	if err != nil {
 		return Info{}, err
 	}
@@ -209,8 +226,8 @@ func (c *Client) Check(ctx context.Context, current string) (Info, error) {
 		return info, err
 	}
 	info.Asset = asset
-	info.DownloadURL = c.assetURL(release, asset)
-	info.ChecksumURL = c.assetURL(release, checksumAsset)
+	info.DownloadURL, info.FallbackDownloadURL = c.assetURLs(release, asset, useMirror)
+	info.ChecksumURL, info.FallbackChecksumURL = c.assetURLs(release, checksumAsset, useMirror)
 	if info.DownloadURL == "" {
 		return info, fmt.Errorf("release v%s does not include %s", latest, asset)
 	}
@@ -254,7 +271,16 @@ func (c *Client) Apply(ctx context.Context, info Info) (Result, error) {
 		}
 		c.setProgress(progress)
 	}()
-	if err := c.download(ctx, info.DownloadURL, info.ChecksumURL, info.SHA256, info.AssetSize, dest); err != nil {
+	err := c.download(ctx, info.DownloadURL, info.ChecksumURL, info.SHA256, info.AssetSize, dest)
+	if err != nil && info.FallbackDownloadURL != "" {
+		c.setProgress(Progress{Active: true, Stage: "downloading", Total: info.AssetSize})
+		checksumURL := info.FallbackChecksumURL
+		if checksumURL == "" {
+			checksumURL = info.ChecksumURL
+		}
+		err = c.download(ctx, info.FallbackDownloadURL, checksumURL, info.SHA256, info.AssetSize, dest)
+	}
+	if err != nil {
 		return Result{}, err
 	}
 	c.setProgress(Progress{Active: true, Stage: "installing", Downloaded: info.AssetSize, Total: info.AssetSize, Percent: 100})
@@ -283,12 +309,23 @@ func (c *Client) Restart() error {
 }
 
 func (c *Client) latest(ctx context.Context) (Release, error) {
+	return c.latestWithMirror(ctx, false)
+}
+
+func (c *Client) latestWithMirror(ctx context.Context, useMirror bool) (Release, error) {
 	if c.apiURL != "" {
 		return c.latestAPI(ctx, c.apiURL)
 	}
 	manifestErr := error(nil)
+	if useMirror && c.mirrorURL != "" {
+		if mirror := c.mirroredURL(c.manifestURL); mirror != "" {
+			if release, err := c.latestManifest(ctx, mirror); err == nil {
+				return release, nil
+			}
+		}
+	}
 	if c.manifestURL != "" {
-		release, err := c.latestManifest(ctx)
+		release, err := c.latestManifest(ctx, c.manifestURL)
 		if err == nil {
 			return release, nil
 		}
@@ -316,8 +353,8 @@ func (c *Client) latest(ctx context.Context) (Release, error) {
 	return Release{}, fmt.Errorf("check for updates: %s", strings.Join(parts, "; "))
 }
 
-func (c *Client) latestManifest(ctx context.Context) (Release, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.manifestURL, nil)
+func (c *Client) latestManifest(ctx context.Context, manifestURL string) (Release, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
 	if err != nil {
 		return Release{}, err
 	}
@@ -572,10 +609,20 @@ func stripReleaseNotes(value string) string {
 	return strings.TrimSpace(strings.Join(out, "\n"))
 }
 
-func (c *Client) assetURL(release Release, name string) string {
+func (c *Client) assetURLs(release Release, name string, useMirror bool) (string, string) {
 	if c.releaseBase != "" {
-		return c.releaseBase + "/v" + strings.TrimPrefix(release.Tag, "v") + "/" + name
+		return c.releaseBase + "/v" + strings.TrimPrefix(release.Tag, "v") + "/" + name, ""
 	}
+	fallback := c.githubAssetURL(release, name)
+	if useMirror {
+		if mirror := c.mirroredURL(fallback); mirror != "" {
+			return mirror, fallback
+		}
+	}
+	return fallback, ""
+}
+
+func (c *Client) githubAssetURL(release Release, name string) string {
 	for _, item := range release.Assets {
 		if item.Name == name && item.BrowserDownloadURL != "" {
 			return item.BrowserDownloadURL
@@ -585,6 +632,14 @@ func (c *Client) assetURL(release Release, name string) string {
 		return defaultDownloadURL + "/" + url.PathEscape(tag) + "/" + url.PathEscape(name)
 	}
 	return ""
+}
+
+func (c *Client) mirroredURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || c.mirrorURL == "" {
+		return ""
+	}
+	return c.mirrorURL + raw
 }
 
 func (c *Client) download(ctx context.Context, url, checksumURL, expectedSHA string, knownTotal int64, dest string) error {

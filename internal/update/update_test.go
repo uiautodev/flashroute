@@ -409,3 +409,109 @@ func TestApplyReportsDownloadProgress(t *testing.T) {
 	}
 	t.Fatal("update did not finish")
 }
+
+func TestCheckWithMirrorManifest(t *testing.T) {
+	version := "0.3.4"
+	asset, _ := AssetName("linux", "amd64", version, false)
+	payload := []byte("mirror binary")
+	sum := sha256.Sum256(payload)
+	hash := hex.EncodeToString(sum[:])
+	manifest := Manifest{
+		Version: version, Tag: "v" + version,
+		Assets: []Asset{{Name: asset, Size: int64(len(payload)), SHA256: hash}},
+	}
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/update.json") {
+			_ = json.NewEncoder(w).Encode(manifest)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer origin.Close()
+	mirror := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/update.json") {
+			_ = json.NewEncoder(w).Encode(manifest)
+			return
+		}
+		http.Error(w, "mirror asset should not be used for check", http.StatusInternalServerError)
+	}))
+	defer mirror.Close()
+
+	client := New(Options{
+		ManifestURL: origin.URL + "/update.json",
+		MirrorURL:   mirror.URL + "/proxy/",
+		GOOS:        "linux",
+		GOARCH:      "amd64",
+		HTTPClient:  origin.Client(),
+	})
+	info, err := client.CheckWithMirror(context.Background(), "0.3.3", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFallback := defaultDownloadURL + "/v" + version + "/" + asset
+	if info.DownloadURL != mirror.URL+"/proxy/"+wantFallback {
+		t.Fatalf("mirror URL = %q", info.DownloadURL)
+	}
+	if info.FallbackDownloadURL != wantFallback {
+		t.Fatalf("fallback URL = %q", info.FallbackDownloadURL)
+	}
+}
+
+func TestApplyFallsBackFromMirror(t *testing.T) {
+	payload := []byte("fallback binary")
+	sum := sha256.Sum256(payload)
+	hash := hex.EncodeToString(sum[:])
+	version := "0.3.4"
+	asset, _ := AssetName("linux", "amd64", version, false)
+	var liveURL string
+	live := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/release":
+			_ = json.NewEncoder(w).Encode(Release{
+				Tag: "v" + version,
+				Assets: []Asset{{
+					Name: asset, Size: int64(len(payload)), SHA256: hash,
+					BrowserDownloadURL: liveURL + "/" + asset,
+				}},
+			})
+		case strings.HasSuffix(r.URL.Path, "/"+asset):
+			_, _ = w.Write(payload)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer live.Close()
+	liveURL = live.URL
+	mirror := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "mirror down", http.StatusInternalServerError)
+	}))
+	defer mirror.Close()
+
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "flashroute")
+	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	client := New(Options{
+		APIURL:     live.URL + "/release",
+		MirrorURL:  mirror.URL + "/proxy/",
+		DataDir:    filepath.Join(dir, "data"),
+		Executable: exe,
+		GOOS:       "linux", GOARCH: "amd64",
+		HTTPClient: live.Client(),
+	})
+	info, err := client.CheckWithMirror(context.Background(), "0.3.3", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(info.DownloadURL, mirror.URL) || info.FallbackDownloadURL != live.URL+"/"+asset {
+		t.Fatalf("urls = %+v", info)
+	}
+	if _, err := client.Apply(context.Background(), info); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(exe)
+	if string(data) != string(payload) {
+		t.Fatalf("executable = %q", data)
+	}
+}
