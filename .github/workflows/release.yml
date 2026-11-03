@@ -72,6 +72,22 @@ jobs:
           files: dist/*
           generate_release_notes: true
           name: ${{ github.ref_name }}
+      - name: Upload update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION#v}"
+          gh release view "${TAG}" --json body,publishedAt,url > "${RUNNER_TEMP}/release.json"
+          go run ./cmd/update-manifest \
+            -dir dist \
+            -version "${VERSION}" \
+            -tag "${TAG}" \
+            -release-json "${RUNNER_TEMP}/release.json" \
+            -out dist/update.json
+          gh release upload "${TAG}" dist/update.json --clobber
       - name: Publish npm package
         if: env.NPM_TOKEN != ''
         env:

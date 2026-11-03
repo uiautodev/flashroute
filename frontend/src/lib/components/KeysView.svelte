@@ -172,6 +172,7 @@ print(res.choices[0].message.content)`;
 			<div>
 				<span class="switch-label">{$t('keys.allowLocalNoKey')}</span>
 				<span class="hint">{$t('keys.allowLocalNoKeyHint')}</span>
+				<span class="hint">{$t('keys.localKeyHint')} <code class="mono">flashroute</code></span>
 			</div>
 			<button class="switch" class:on={allowLocalNoKey} onclick={toggleLocalNoKey} aria-label={$t('keys.allowLocalNoKey')} aria-pressed={allowLocalNoKey}></button>
 		</div>

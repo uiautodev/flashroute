@@ -5,12 +5,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -18,15 +22,25 @@ import (
 )
 
 const (
-	defaultAPIURL     = "https://api.github.com/repos/uiautodev/flashroute/releases/latest"
-	checksumAsset     = "SHA256SUMS"
-	maxReleaseSize    = 1 << 20
-	maxDownloadSize   = 1 << 30
-	downloadUserAgent = "flashroute-updater/1.0"
+	defaultAPIURL      = "https://api.github.com/repos/uiautodev/flashroute/releases/latest"
+	defaultManifestURL = "https://github.com/uiautodev/flashroute/releases/latest/download/update.json"
+	defaultLatestURL   = "https://github.com/uiautodev/flashroute/releases/latest"
+	defaultFeedURL     = "https://github.com/uiautodev/flashroute/releases.atom"
+	defaultDownloadURL = "https://github.com/uiautodev/flashroute/releases/download"
+	checksumAsset      = "SHA256SUMS"
+	maxReleaseSize     = 1 << 20
+	maxDownloadSize    = 1 << 30
+	downloadUserAgent  = "flashroute-updater/1.0"
 )
 
+var releaseTagPattern = regexp.MustCompile(`^v?[0-9A-Za-z][0-9A-Za-z._-]*$`)
+
 type Options struct {
+	ManifestURL string
+	LatestURL   string
+	FeedURL     string
 	APIURL      string
+	Token       string
 	ReleaseBase string
 	DataDir     string
 	Executable  string
@@ -38,7 +52,11 @@ type Options struct {
 }
 
 type Client struct {
+	manifestURL string
+	latestURL   string
+	feedURL     string
 	apiURL      string
+	token       string
 	releaseBase string
 	dataDir     string
 	exe         string
@@ -61,7 +79,17 @@ type Release struct {
 type Asset struct {
 	Name               string `json:"name"`
 	Size               int64  `json:"size"`
-	BrowserDownloadURL string `json:"browser_download_url"`
+	SHA256             string `json:"sha256,omitempty"`
+	BrowserDownloadURL string `json:"browser_download_url,omitempty"`
+}
+
+type Manifest struct {
+	Version     string  `json:"version"`
+	Tag         string  `json:"tag"`
+	PublishedAt string  `json:"published_at,omitempty"`
+	ReleaseURL  string  `json:"release_url,omitempty"`
+	Notes       string  `json:"notes,omitempty"`
+	Assets      []Asset `json:"assets"`
 }
 
 type Info struct {
@@ -76,6 +104,7 @@ type Info struct {
 	AssetSize   int64  `json:"asset_size,omitempty"`
 	DownloadURL string `json:"download_url,omitempty"`
 	ChecksumURL string `json:"checksum_url,omitempty"`
+	SHA256      string `json:"-"`
 	Desktop     bool   `json:"desktop"`
 }
 
@@ -86,7 +115,11 @@ type Result struct {
 
 func New(opts Options) *Client {
 	c := &Client{
+		manifestURL: strings.TrimSpace(opts.ManifestURL),
+		latestURL:   strings.TrimSpace(opts.LatestURL),
+		feedURL:     strings.TrimSpace(opts.FeedURL),
 		apiURL:      strings.TrimSpace(opts.APIURL),
+		token:       strings.TrimSpace(opts.Token),
 		releaseBase: strings.TrimRight(strings.TrimSpace(opts.ReleaseBase), "/"),
 		dataDir:     opts.DataDir,
 		exe:         opts.Executable,
@@ -96,11 +129,29 @@ func New(opts Options) *Client {
 		http:        opts.HTTPClient,
 		restart:     opts.Restart,
 	}
+	if c.manifestURL == "" {
+		c.manifestURL = strings.TrimSpace(os.Getenv("FLASHROUTE_UPDATE_MANIFEST_URL"))
+	}
+	if c.manifestURL == "" {
+		c.manifestURL = defaultManifestURL
+	}
+	if c.latestURL == "" {
+		c.latestURL = strings.TrimSpace(os.Getenv("FLASHROUTE_UPDATE_LATEST_URL"))
+	}
+	if c.latestURL == "" {
+		c.latestURL = defaultLatestURL
+	}
+	if c.feedURL == "" {
+		c.feedURL = strings.TrimSpace(os.Getenv("FLASHROUTE_UPDATE_FEED"))
+	}
+	if c.feedURL == "" {
+		c.feedURL = defaultFeedURL
+	}
 	if c.apiURL == "" {
 		c.apiURL = strings.TrimSpace(os.Getenv("FLASHROUTE_UPDATE_API"))
 	}
-	if c.apiURL == "" {
-		c.apiURL = defaultAPIURL
+	if c.token == "" {
+		c.token = strings.TrimSpace(os.Getenv("FLASHROUTE_UPDATE_TOKEN"))
 	}
 	if c.releaseBase == "" {
 		c.releaseBase = strings.TrimRight(strings.TrimSpace(os.Getenv("FLASHROUTE_UPDATE_BASE_URL")), "/")
@@ -152,14 +203,16 @@ func (c *Client) Check(ctx context.Context, current string) (Info, error) {
 	if info.DownloadURL == "" {
 		return info, fmt.Errorf("release v%s does not include %s", latest, asset)
 	}
-	if info.ChecksumURL == "" {
-		return info, fmt.Errorf("release v%s does not include %s", latest, checksumAsset)
-	}
 	for _, item := range release.Assets {
-		if item.Name == asset {
-			info.AssetSize = item.Size
-			break
+		if item.Name != asset {
+			continue
 		}
+		info.AssetSize = item.Size
+		info.SHA256 = strings.ToLower(strings.TrimSpace(item.SHA256))
+		break
+	}
+	if info.SHA256 == "" && info.ChecksumURL == "" {
+		return info, fmt.Errorf("release v%s does not include %s", latest, checksumAsset)
 	}
 	return info, nil
 }
@@ -179,7 +232,7 @@ func (c *Client) Apply(ctx context.Context, info Info) (Result, error) {
 		return Result{}, err
 	}
 	dest := filepath.Join(dir, info.Asset)
-	if err := c.download(ctx, info.DownloadURL, info.ChecksumURL, dest); err != nil {
+	if err := c.download(ctx, info.DownloadURL, info.ChecksumURL, info.SHA256, dest); err != nil {
 		return Result{}, err
 	}
 	if c.desktop {
@@ -207,12 +260,130 @@ func (c *Client) Restart() error {
 }
 
 func (c *Client) latest(ctx context.Context) (Release, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiURL, nil)
+	if c.apiURL != "" {
+		return c.latestAPI(ctx, c.apiURL)
+	}
+	manifestErr := error(nil)
+	if c.manifestURL != "" {
+		release, err := c.latestManifest(ctx)
+		if err == nil {
+			return release, nil
+		}
+		manifestErr = err
+	}
+	release, redirectErr := c.latestRedirect(ctx)
+	if redirectErr == nil {
+		if entry, err := c.latestFeedEntry(ctx, release.Tag); err == nil {
+			release.Body = entry.Body
+			release.PublishedAt = entry.PublishedAt
+			if release.HTMLURL == "" {
+				release.HTMLURL = entry.HTMLURL
+			}
+		}
+		return release, nil
+	}
+	apiRelease, apiErr := c.latestAPI(ctx, defaultAPIURL)
+	if apiErr == nil {
+		return apiRelease, nil
+	}
+	parts := []string{redirectErr.Error(), apiErr.Error()}
+	if manifestErr != nil {
+		parts = append([]string{manifestErr.Error()}, parts...)
+	}
+	return Release{}, fmt.Errorf("check for updates: %s", strings.Join(parts, "; "))
+}
+
+func (c *Client) latestManifest(ctx context.Context) (Release, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.manifestURL, nil)
+	if err != nil {
+		return Release{}, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", downloadUserAgent)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return Release{}, fmt.Errorf("read update manifest: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxReleaseSize))
+	if err != nil {
+		return Release{}, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return Release{}, fmt.Errorf("read update manifest: HTTP %d", resp.StatusCode)
+	}
+	var manifest Manifest
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		return Release{}, fmt.Errorf("decode update manifest: %w", err)
+	}
+	tag := strings.TrimSpace(manifest.Tag)
+	if tag == "" && strings.TrimSpace(manifest.Version) != "" {
+		tag = "v" + strings.TrimPrefix(strings.TrimSpace(manifest.Version), "v")
+	}
+	if tag == "" {
+		return Release{}, errors.New("update manifest has no tag")
+	}
+	for i := range manifest.Assets {
+		manifest.Assets[i].BrowserDownloadURL = ""
+	}
+	return Release{
+		Tag:         tag,
+		Name:        manifest.Version,
+		Body:        strings.TrimSpace(manifest.Notes),
+		HTMLURL:     strings.TrimSpace(manifest.ReleaseURL),
+		PublishedAt: strings.TrimSpace(manifest.PublishedAt),
+		Assets:      manifest.Assets,
+	}, nil
+}
+
+func (c *Client) latestRedirect(ctx context.Context) (Release, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.latestURL, nil)
+	if err != nil {
+		return Release{}, err
+	}
+	req.Header.Set("User-Agent", downloadUserAgent)
+	client := *c.http
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return Release{}, fmt.Errorf("read latest release: %w", err)
+	}
+	defer resp.Body.Close()
+	releaseURL := ""
+	if location := strings.TrimSpace(resp.Header.Get("Location")); location != "" {
+		base, _ := url.Parse(c.latestURL)
+		if next, err := base.Parse(location); err == nil {
+			releaseURL = next.String()
+		}
+	}
+	tag := releaseTagFromURL(releaseURL)
+	if tag == "" {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxReleaseSize))
+		if found := releaseTagPattern.FindString(releaseTagInBody(string(body))); found != "" {
+			tag = found
+		}
+	}
+	if tag == "" {
+		return Release{}, fmt.Errorf("read latest release: no release tag in response")
+	}
+	if releaseURL == "" {
+		releaseURL = releaseURLForTag(c.latestURL, tag)
+	}
+	return Release{Tag: tag, HTMLURL: releaseURL}, nil
+}
+
+func (c *Client) latestAPI(ctx context.Context, endpoint string) (Release, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return Release{}, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", downloadUserAgent)
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return Release{}, fmt.Errorf("check for updates: %w", err)
@@ -235,22 +406,176 @@ func (c *Client) latest(ctx context.Context) (Release, error) {
 	return release, nil
 }
 
-func (c *Client) assetURL(release Release, name string) string {
-	if c.releaseBase != "" {
-		return c.releaseBase + "/v" + strings.TrimPrefix(release.Tag, "v") + "/" + name
+type atomEntry struct {
+	Tag         string
+	Body        string
+	PublishedAt string
+	HTMLURL     string
+}
+
+func (c *Client) latestFeedEntry(ctx context.Context, tag string) (atomEntry, error) {
+	feedCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(feedCtx, http.MethodGet, c.feedURL, nil)
+	if err != nil {
+		return atomEntry{}, err
 	}
-	for _, item := range release.Assets {
-		if item.Name == name {
-			return item.BrowserDownloadURL
+	req.Header.Set("Accept", "application/atom+xml")
+	req.Header.Set("User-Agent", downloadUserAgent)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return atomEntry{}, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxReleaseSize))
+	if err != nil {
+		return atomEntry{}, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return atomEntry{}, fmt.Errorf("read release feed: HTTP %d", resp.StatusCode)
+	}
+	var feed struct {
+		Entries []struct {
+			Title   string `xml:"title"`
+			Updated string `xml:"updated"`
+			Links   []struct {
+				Href string `xml:"href,attr"`
+			} `xml:"link"`
+			Content string `xml:"content"`
+		} `xml:"entry"`
+	}
+	if err := xml.Unmarshal(body, &feed); err != nil {
+		return atomEntry{}, err
+	}
+	for _, entry := range feed.Entries {
+		entryTag := ""
+		htmlURL := ""
+		for _, link := range entry.Links {
+			if found := releaseTagFromURL(link.Href); found != "" {
+				entryTag = found
+				htmlURL = link.Href
+				break
+			}
+		}
+		if entryTag == "" {
+			entryTag = strings.TrimSpace(entry.Title)
+		}
+		if entryTag != tag {
+			continue
+		}
+		return atomEntry{
+			Tag:         entryTag,
+			Body:        stripReleaseNotes(entry.Content),
+			PublishedAt: strings.TrimSpace(entry.Updated),
+			HTMLURL:     htmlURL,
+		}, nil
+	}
+	return atomEntry{}, fmt.Errorf("release %s not found in feed", tag)
+}
+
+func releaseTagFromURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	path := u.EscapedPath()
+	const marker = "/releases/tag/"
+	index := strings.Index(path, marker)
+	if index < 0 {
+		return ""
+	}
+	tag := strings.Trim(path[index+len(marker):], "/")
+	if slash := strings.Index(tag, "/"); slash >= 0 {
+		tag = tag[:slash]
+	}
+	tag, err = url.PathUnescape(tag)
+	if err != nil || !releaseTagPattern.MatchString(tag) {
+		return ""
+	}
+	return tag
+}
+
+func releaseTagInBody(body string) string {
+	for _, marker := range []string{"/releases/tag/", "releases/tag/"} {
+		index := strings.Index(body, marker)
+		if index < 0 {
+			continue
+		}
+		value := body[index+len(marker):]
+		if end := strings.IndexAny(value, "\"'<> ?#"); end >= 0 {
+			value = value[:end]
+		}
+		if releaseTagPattern.MatchString(value) {
+			return value
 		}
 	}
 	return ""
 }
 
-func (c *Client) download(ctx context.Context, url, checksumURL, dest string) error {
-	expected, err := c.checksum(ctx, checksumURL, filepath.Base(dest))
+func releaseURLForTag(latestURL, tag string) string {
+	u, err := url.Parse(latestURL)
 	if err != nil {
-		return err
+		return ""
+	}
+	path := strings.TrimSuffix(u.Path, "/latest")
+	u.Path = path + "/tag/" + url.PathEscape(tag)
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
+}
+
+var htmlBreakPattern = regexp.MustCompile(`(?i)<(?:br\s*/?|/p|/li|/h[1-6]|/div|/tr)>`)
+var htmlTagPattern = regexp.MustCompile(`(?s)<[^>]+>`)
+
+func stripReleaseNotes(value string) string {
+	value = htmlBreakPattern.ReplaceAllString(value, "\n")
+	value = htmlTagPattern.ReplaceAllString(value, "")
+	value = html.UnescapeString(value)
+	lines := strings.Split(value, "\n")
+	out := make([]string, 0, len(lines))
+	blank := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			if blank {
+				continue
+			}
+			blank = true
+			continue
+		}
+		blank = false
+		out = append(out, line)
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
+}
+
+func (c *Client) assetURL(release Release, name string) string {
+	if c.releaseBase != "" {
+		return c.releaseBase + "/v" + strings.TrimPrefix(release.Tag, "v") + "/" + name
+	}
+	for _, item := range release.Assets {
+		if item.Name == name && item.BrowserDownloadURL != "" {
+			return item.BrowserDownloadURL
+		}
+	}
+	if tag := strings.TrimSpace(release.Tag); tag != "" {
+		return defaultDownloadURL + "/" + url.PathEscape(tag) + "/" + url.PathEscape(name)
+	}
+	return ""
+}
+
+func (c *Client) download(ctx context.Context, url, checksumURL, expectedSHA, dest string) error {
+	expected := strings.ToLower(strings.TrimSpace(expectedSHA))
+	if expected == "" {
+		if checksumURL == "" {
+			return errors.New("download update: checksum is missing")
+		}
+		var err error
+		expected, err = c.checksum(ctx, checksumURL, filepath.Base(dest))
+		if err != nil {
+			return err
+		}
+		expected = strings.ToLower(expected)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

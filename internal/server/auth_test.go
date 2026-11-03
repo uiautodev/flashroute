@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/uiautodev/flashroute/internal/config"
 	"github.com/uiautodev/flashroute/internal/gateway"
 	"github.com/uiautodev/flashroute/internal/store"
 )
@@ -94,5 +95,50 @@ func TestLocalBypassesPassword(t *testing.T) {
 	}
 	if !strings.HasPrefix(key.Key, "sk-fr-") {
 		t.Fatalf("generated key %q does not start with sk-fr-", key.Key)
+	}
+}
+
+func TestLocalSentinelGatewayKey(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer upstream.Close()
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetLocalNoKey(false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.UpsertProvider(config.Provider{
+		ID: "mock", Name: "Mock", BaseURL: upstream.URL + "/v1", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetProviderModels("mock", []config.Model{{ID: "chat"}}); err != nil {
+		t.Fatal(err)
+	}
+	h := New(st, gateway.New(st), Options{Version: "test"}).Handler()
+	body := `{"model":"mock/chat","messages":[{"role":"user","content":"hi"}]}`
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer flashroute")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("local sentinel key = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.RemoteAddr = "203.0.113.10:1234"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer flashroute")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("remote sentinel key = %d, want 401", rec.Code)
 	}
 }

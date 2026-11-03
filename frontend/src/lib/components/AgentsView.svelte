@@ -110,13 +110,6 @@
 							<div class="agent-identity">
 								<div class="agent-title-row">
 									<h2>{agent.name}</h2>
-									{#if agent.connected}
-										<span class="badge badge-ok"><Icon name="check" size={11} />{$t('agents.connectedBadge')}</span>
-									{:else}
-										<span class="badge {agent.detected ? 'badge-ok' : 'badge-off'}">
-											{agent.detected ? $t('agents.detected') : $t('agents.notDetected')}
-										</span>
-									{/if}
 								</div>
 								<span class="agent-kind">{$t(agent.id === 'claude' ? 'agents.anthropicEndpoint' : 'agents.openaiEndpoint')}</span>
 							</div>

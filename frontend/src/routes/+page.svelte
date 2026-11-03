@@ -31,6 +31,7 @@
 	let loadError = '';
 	let view = 'chat';
 	let mobileNav = false;
+	let chatRequest = { id: 0, private: false };
 
 	$: current = nav.find((item) => item.id === view) || nav[0];
 	$: themeLabel = $t(`theme.${$themeMode}`);
@@ -64,6 +65,14 @@
 		view = id;
 		mobileNav = false;
 		if (window.location.hash !== '#' + id) window.location.hash = id;
+	}
+
+	function handleShortcut(event) {
+		if (event.code !== 'KeyN' || !(event.metaKey || event.ctrlKey) || event.altKey) return;
+		if (!ready || !status || (status.required && !status.authenticated)) return;
+		event.preventDefault();
+		chatRequest = { id: chatRequest.id + 1, private: event.shiftKey };
+		navigate('chat');
 	}
 
 	async function logout() {
@@ -170,7 +179,7 @@
 
 			<main class="content" class:chat-content={view === 'chat'}>
 				{#if view === 'chat'}
-					<ChatView onNavigate={navigate} />
+					<ChatView onNavigate={navigate} newChatRequest={chatRequest} />
 				{:else if view === 'providers'}
 					<ProvidersView />
 				{:else if view === 'routes'}
@@ -189,5 +198,6 @@
 	</div>
 {/if}
 
+<svelte:window onkeydown={handleShortcut} />
 <ConfirmDialog />
 <ToastStack />

@@ -141,7 +141,8 @@ func (s *Server) admin(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) gatewayAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.store.LocalNoKeyEnabled() && s.isLocal(r) {
+		local := s.isLocal(r)
+		if s.store.LocalNoKeyEnabled() && local {
 			setCORS(w)
 			next(w, r)
 			return
@@ -154,7 +155,7 @@ func (s *Server) gatewayAuth(next http.HandlerFunc) http.HandlerFunc {
 		if key == "" {
 			key = strings.TrimSpace(r.Header.Get("X-API-Key"))
 		}
-		if key == "" || !s.store.ValidateAPIKey(key) {
+		if key == "" || (!s.store.ValidateAPIKey(key) && !(local && key == "flashroute")) {
 			setCORS(w)
 			if strings.HasPrefix(r.URL.Path, "/v1/messages") {
 				gateway.AnthropicError(w, http.StatusUnauthorized, "invalid or missing FlashRoute API key", "authentication_error")

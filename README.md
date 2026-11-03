@@ -19,7 +19,7 @@ English | [简体中文](README.zh-CN.md)
 - **API types**: Chat Completions, Responses or Anthropic Messages. Requests and streaming responses are converted automatically.
 - **Ordered route aliases**: for example `grounder` tries `ds/deepseek-flash`, then `aliyun/qwen3.8-27b`, falling back on 429, 5xx and network errors. A target that returns 429 cools down for 60 seconds and is skipped until the countdown ends.
 - **Usage stats**: route request counts, success rate, per-target hit rate and 429 counts, persisted to YAML.
-- **Client keys**: generated with the `sk-fr-` prefix, masked by default in the UI and copyable with one click. Localhost requests can skip the gateway key by default; toggle this on the **API Keys** page.
+- **Client keys**: generated with the `sk-fr-` prefix, masked by default in the UI and copyable with one click. Localhost requests can skip the gateway key by default or use the literal key `flashroute`; toggle the no-key mode on the **API Keys** page.
 - **Message redaction**: regex rules replace secrets in outbound messages before they reach a provider. Matches become same-length random values, keeping punctuation, whitespace and PEM markers, so a key like `sk-123456` still looks like a key, private keys keep their shape and email addresses keep the domain after `@`. Everything is restored in model replies; chat messages with sensitive content get a **Safe** badge. Text inside regex capture groups is preserved and the rest of each match is masked with the same length; hit counts and the last 30 days of replacement records are available on the **Data redaction** page and can be cleared immediately. Rules and the global switch also live there.
 - **OpenAI-compatible gateway**: `/v1/models`, `/v1/chat/completions` and `/v1/responses`, including `stream: true`. Anthropic Messages (`POST /v1/messages`) is also supported, including streaming and tool use.
 - **Chat UI**: streaming output, reasoning toggle, text + images, Markdown, one-click copy, privacy mode (never written to disk), conversation history with delete/clear, and optional web search (on by default).
@@ -193,18 +193,30 @@ X-FlashRoute-Attempts
 
 ## In-app updates
 
-Open **Settings → Software update** and click **Check for updates**. When a newer release exists, FlashRoute downloads the matching asset (server binary or macOS DMG), verifies it against the release's `SHA256SUMS`, replaces the running executable and restarts automatically. The restarted process serves the new version; macOS desktop builds also update the bundle metadata and re-sign the app ad hoc.
+Open **Settings → Software update** and click **Check for updates**. By default FlashRoute reads `update.json` from the latest GitHub Release:
 
-To use a GitHub mirror or a local release API:
-
-```bash
-FLASHROUTE_UPDATE_API=https://api.github.com/repos/uiautodev/flashroute/releases/latest \
-FLASHROUTE_UPDATE_BASE_URL=https://mirror.example/flashroute/releases/download \
-./flashroute
+```text
+https://github.com/uiautodev/flashroute/releases/latest/download/update.json
 ```
 
-`FLASHROUTE_UPDATE_API` returns the latest release JSON. `FLASHROUTE_UPDATE_BASE_URL` must expose assets at `v<version>/<asset-name>` and is also used for `SHA256SUMS`. Standard `HTTP_PROXY` / `HTTPS_PROXY` environment variables are respected.
+This is a normal Release asset download, not a GitHub REST API request, so it does not consume the unauthenticated API rate limit. The manifest contains the version, release notes, asset names, sizes and SHA-256 hashes. If the manifest is missing, FlashRoute falls back to the release redirect / Atom feed and finally the REST API.
 
+When a newer release exists, FlashRoute downloads the matching asset (server binary or macOS DMG), verifies it against the manifest SHA-256, replaces the running executable and restarts automatically. The restarted process serves the new version; macOS desktop builds also update the bundle metadata and re-sign the app ad hoc.
+
+For a static mirror, expose the manifest and assets like this:
+
+```text
+update.json
+v<version>/<asset-name>
+v<version>/SHA256SUMS
+```
+
+```bash
+FLASHROUTE_UPDATE_MANIFEST_URL=https://mirror.example/flashroute/update.json
+FLASHROUTE_UPDATE_BASE_URL=https://mirror.example/flashroute
+```
+
+`FLASHROUTE_UPDATE_MANIFEST_URL` points to the manifest, and `FLASHROUTE_UPDATE_BASE_URL` is used for `v<version>/<asset-name>` downloads and the legacy `SHA256SUMS` fallback. For a GitHub API relay, set `FLASHROUTE_UPDATE_API`; `FLASHROUTE_UPDATE_TOKEN` adds a bearer token. `FLASHROUTE_UPDATE_LATEST_URL` and `FLASHROUTE_UPDATE_FEED` can override the redirect and Atom endpoints. Standard `HTTP_PROXY` / `HTTPS_PROXY` environment variables are respected.
 ## Chat web search
 
 The chat header has a **Web search** switch, on by default. When enabled, the model gets `web_search` and `web_fetch` function tools and decides when to call them. If a DeepSeek provider is configured, the tools use the DeepSeek Search / Fetch APIs; otherwise FlashRoute falls back to Bing search and direct page fetching. The current date and time are included in the tool prompt. When redaction is enabled, queries are redacted before they leave FlashRoute. Set `FLASHROUTE_SEARCH_URL` to use a compatible Bing or DuckDuckGo HTML endpoint or mirror for the fallback search.
@@ -252,7 +264,7 @@ git tag v1.2.3
 git push origin v1.2.3
 ```
 
-GitHub Actions builds the frontend, cross-compiles the server binaries, builds a universal macOS DMG (`FlashRoute-desktop-mac-<version>.dmg`), uploads everything with a `SHA256SUMS` file to the GitHub Release, and publishes the matching npm package when the `NPM_TOKEN` repository secret (an npm automation token) is configured. The package is published as `flashroute`. Binary versions use the tag without the leading `v`, and the commit hash is embedded into the binary and shown on the Settings page.
+GitHub Actions builds the frontend, cross-compiles the server binaries, builds a universal macOS DMG (`FlashRoute-desktop-mac-<version>.dmg`), uploads everything with a `SHA256SUMS` file and an `update.json` manifest to the GitHub Release, and publishes the matching npm package when the `NPM_TOKEN` repository secret (an npm automation token) is configured. The package is published as `flashroute`. Binary versions use the tag without the leading `v`, and the commit hash is embedded into the binary and shown on the Settings page.
 
 ## License
 

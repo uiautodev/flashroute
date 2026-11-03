@@ -214,3 +214,115 @@ func TestCheckUpToDate(t *testing.T) {
 		t.Fatalf("unexpected update: %+v", info)
 	}
 }
+
+func TestCheckManifestAndApply(t *testing.T) {
+	payload := []byte("manifest binary")
+	sum := sha256.Sum256(payload)
+	hash := hex.EncodeToString(sum[:])
+	version := "0.3.3"
+	asset, _ := AssetName("linux", "amd64", version, false)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/update.json", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(Manifest{
+			Version:     version,
+			Tag:         "v" + version,
+			ReleaseURL:  "https://example.com/release",
+			PublishedAt: "2026-11-03T00:00:00Z",
+			Notes:       "manifest notes",
+			Assets:      []Asset{{Name: asset, Size: int64(len(payload)), SHA256: hash}},
+		})
+	})
+	mux.HandleFunc("/v"+version+"/"+asset, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(payload)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "flashroute")
+	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	client := New(Options{
+		ManifestURL: srv.URL + "/update.json",
+		ReleaseBase: srv.URL,
+		DataDir:     filepath.Join(dir, "data"),
+		Executable:  exe,
+		GOOS:        "linux",
+		GOARCH:      "amd64",
+		HTTPClient:  srv.Client(),
+	})
+	info, err := client.Check(context.Background(), "0.3.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Available || info.Latest != version || info.Notes != "manifest notes" || info.SHA256 != hash {
+		t.Fatalf("info = %+v", info)
+	}
+	if info.DownloadURL != srv.URL+"/v"+version+"/"+asset {
+		t.Fatalf("download URL = %q", info.DownloadURL)
+	}
+	if _, err := client.Apply(context.Background(), info); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(exe)
+	if string(data) != string(payload) {
+		t.Fatalf("executable = %q", data)
+	}
+}
+
+func TestCheckFallsBackToLatestRedirectAndFeed(t *testing.T) {
+	version := "0.3.3"
+	asset, _ := AssetName("linux", "amd64", version, false)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/update.json", func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	})
+	mux.HandleFunc("/latest", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/releases/tag/v"+version, http.StatusFound)
+	})
+	mux.HandleFunc("/releases.atom", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <title>v` + version + `</title>
+    <updated>2026-11-03T00:00:00Z</updated>
+    <link rel="alternate" href="` + "http://example.com" + `/releases/tag/v` + version + `"/>
+    <content type="html">&lt;p&gt;feed notes&lt;br&gt;second line&lt;/p&gt;</content>
+  </entry>
+</feed>`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := New(Options{
+		ManifestURL: srv.URL + "/update.json",
+		LatestURL:   srv.URL + "/latest",
+		FeedURL:     srv.URL + "/releases.atom",
+		ReleaseBase: srv.URL,
+		GOOS:        "linux",
+		GOARCH:      "amd64",
+		HTTPClient:  srv.Client(),
+	})
+	info, err := client.Check(context.Background(), "0.3.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Available || info.Latest != version || info.Notes != "feed notes\nsecond line" {
+		t.Fatalf("info = %+v", info)
+	}
+	if info.DownloadURL != srv.URL+"/v"+version+"/"+asset || info.ChecksumURL != srv.URL+"/v"+version+"/"+checksumAsset {
+		t.Fatalf("urls = %+v", info)
+	}
+	if info.ReleaseURL != srv.URL+"/releases/tag/v"+version {
+		t.Fatalf("release URL = %q", info.ReleaseURL)
+	}
+}
+
+func TestStripReleaseNotes(t *testing.T) {
+	got := stripReleaseNotes("<h2>Title</h2><p>one &amp; two</p><ul><li>a</li><li>b</li></ul>")
+	want := "Title\none & two\na\nb"
+	if got != want {
+		t.Fatalf("notes = %q, want %q", got, want)
+	}
+}

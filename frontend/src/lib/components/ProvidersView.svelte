@@ -30,7 +30,7 @@
 	let form = blankForm();
 	let modelText = '';
 	let availableModels = [];
-	let viewMode = 'cards';
+	let viewMode = 'list';
 	let modelTab = 'list';
 
 	function blankForm() {
@@ -39,7 +39,7 @@
 
 	onMount(() => {
 		if (typeof localStorage !== 'undefined') {
-			const saved = localStorage.getItem('flashroute:providers-view');
+			const saved = localStorage.getItem('flashroute:providers-view-v2');
 			if (saved === 'cards' || saved === 'list') viewMode = saved;
 		}
 		load();
@@ -48,7 +48,7 @@
 	function setView(mode) {
 		viewMode = mode;
 		try {
-			localStorage.setItem('flashroute:providers-view', mode);
+			localStorage.setItem('flashroute:providers-view-v2', mode);
 		} catch {
 			/* ignore */
 		}

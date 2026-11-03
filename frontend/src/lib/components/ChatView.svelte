@@ -12,6 +12,7 @@
 	marked.setOptions({ gfm: true, breaks: true });
 
 	export let onNavigate = () => {};
+	export let newChatRequest = null;
 
 	let loading = true;
 	let available = { routes: [], direct: [] };
@@ -43,24 +44,21 @@
 	let scroller;
 	let textarea;
 	let dragActive = false;
+	let followBottom = true;
+	let lastNewChatRequest = 0;
 
 	$: routes = available.routes || [];
 	$: direct = available.direct || [];
 	$: hasModels = routes.length > 0 || direct.length > 0;
 	$: canSend = model && (text.trim() || attachments.length > 0) && !editingID;
+	$: if (newChatRequest?.id && newChatRequest.id !== lastNewChatRequest) {
+		lastNewChatRequest = newChatRequest.id;
+		newChat(newChatRequest.private);
+	}
 
-	onMount(() => {
-		const handleShortcut = (event) => {
-			if (event.code !== 'KeyN' || !(event.metaKey || event.ctrlKey) || event.altKey) return;
-			event.preventDefault();
-			newChat(event.shiftKey);
-		};
-		window.addEventListener('keydown', handleShortcut);
-		return () => {
-			window.removeEventListener('keydown', handleShortcut);
-			document.documentElement.classList.remove('chat-fullscreen');
-			document.documentElement.classList.remove('chat-history-open');
-		};
+	onMount(() => () => {
+		document.documentElement.classList.remove('chat-fullscreen');
+		document.documentElement.classList.remove('chat-history-open');
 	});
 
 	onMount(async () => {
@@ -100,6 +98,7 @@
 	async function newChat(privateMode = false) {
 		closeHistory();
 		privacy = privateMode;
+		followBottom = true;
 		current = null;
 		messages = [];
 		error = '';
@@ -121,7 +120,7 @@
 			editingText = '';
 			if (data.model && modelExists(data.model)) model = data.model;
 			await refreshChats();
-			await scrollBottom();
+			await scrollBottom(true);
 		} catch (err) {
 			toast(err.message, 'error');
 		}
@@ -239,7 +238,7 @@
 		text = '';
 		attachments = [];
 		sending = true;
-		await scrollBottom();
+		await scrollBottom(true);
 		try {
 			await streamChat(
 				{
@@ -311,7 +310,7 @@
 		toolStatus = '';
 		savingEdit = true;
 		error = '';
-		await scrollBottom();
+		await scrollBottom(true);
 		try {
 			await streamChat(
 				{
@@ -413,7 +412,7 @@
 			editingText = '';
 			if (data.model && modelExists(data.model)) model = data.model;
 			await refreshChats();
-			await scrollBottom();
+			await scrollBottom(true);
 		} catch (err) {
 			error = err.message;
 			toast(err.message, 'error');
@@ -546,16 +545,26 @@
 		if (event.dataTransfer?.files?.length) addFiles(event.dataTransfer.files);
 	}
 
-	async function scrollBottom() {
+	function nearBottom() {
+		if (!scroller) return true;
+		return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 64;
+	}
+
+	function onMessagesScroll() {
+		followBottom = nearBottom();
+		if (followBottom) scheduleScroll();
+	}
+
+	async function scrollBottom(force = false) {
 		await tick();
-		if (scroller) scroller.scrollTop = scroller.scrollHeight;
+		if (scroller && (force || followBottom)) scroller.scrollTop = scroller.scrollHeight;
 	}
 
 	function scheduleScroll() {
-		if (streamFrame) return;
+		if (!followBottom || streamFrame) return;
 		streamFrame = requestAnimationFrame(() => {
 			streamFrame = 0;
-			if (scroller) scroller.scrollTop = scroller.scrollHeight;
+			if (scroller && followBottom) scroller.scrollTop = scroller.scrollHeight;
 		});
 	}
 
@@ -750,7 +759,7 @@
 				<button class="btn btn-primary" onclick={() => onNavigate('providers')}>{$t('chat.goProviders')}</button>
 			</div>
 		{:else}
-			<div class="messages" bind:this={scroller}>
+			<div class="messages" bind:this={scroller} onscroll={onMessagesScroll}>
 				{#if messages.length === 0}
 					<div class="welcome">
 						<div class="welcome-mark"><Icon name="zap" size={30} /></div>

@@ -19,7 +19,7 @@
 - **API 类型**：每个供应商可选择 Chat Completions、Responses 或 Anthropic Messages API，网关会自动转换请求和流式响应。
 - **组合路由**：例如 `grounder` 依次请求 `ds/deepseek-flash`、`aliyun/qwen3.8-27b`；429、5xx 和网络错误自动切到下一个。目标返回 429 后会冷却 60 秒，冷却期间跳过，倒计时结束后恢复重试。
 - **统计**：路由请求数、成功率、每个目标命中率和 429 次数，数据持久化到 YAML。
-- **客户端 Key**：自动生成 `sk-fr-` 前缀的 Key，界面默认打码显示，可一键复制完整值。本机请求默认可以不带 Key 访问网关，可在「API Key」页关闭。
+- **客户端 Key**：自动生成 `sk-fr-` 前缀的 Key，界面默认打码显示，可一键复制完整值。本机请求默认可以不带 Key 访问网关，也可以使用字面 Key `flashroute`；可在「API Key」页关闭免 Key 模式。
 - **信息脱敏**：发送给供应商前按自定义正则替换消息中的敏感信息。命中内容会替换为等长随机字符串，并保留标点、空白和 PEM 标记（例如 `sk-123456` 仍是 `sk-` 开头的同长度字符串，私钥仍保持原有结构），邮箱地址保留 `@` 后面的域名。模型回复中的内容会自动还原；聊天中包含敏感信息的消息会显示「已保护」标记。正则捕获组内的内容会原样保留，其余部分替换为等长掩码；「信息脱敏」页会显示命中次数和最近 30 天的替换记录，支持立即清空。规则和全局开关也在该页。
 - **OpenAI / Anthropic 兼容网关**：`/v1/models`、`/v1/chat/completions`、`/v1/responses`、`/v1/messages`，支持 `stream: true`、工具调用和回退路由。
 - **聊天界面**：流式输出、思考过程展开/收起、文字 + 图片、Markdown 渲染、一键复制、隐私模式（不落盘）、历史会话删除/清空，以及可开关的联网搜索（默认开启）。
@@ -194,18 +194,30 @@ X-FlashRoute-Attempts
 
 ## 应用内更新
 
-打开 **设置 → 软件更新**，点击「检查更新」。发现新版本后，FlashRoute 会下载对应产物（服务端二进制或 macOS DMG），使用 Release 中的 `SHA256SUMS` 校验，替换当前可执行文件并自动重启；重启后即为新版本。macOS 桌面版还会更新应用包信息并重新进行 ad-hoc 签名。
+打开 **设置 → 软件更新**，点击「检查更新」。默认从最新 GitHub Release 读取 `update.json`：
 
-如果使用 GitHub 镜像或本地 Release API：
-
-```bash
-FLASHROUTE_UPDATE_API=https://api.github.com/repos/uiautodev/flashroute/releases/latest \
-FLASHROUTE_UPDATE_BASE_URL=https://mirror.example/flashroute/releases/download \
-./flashroute
+```text
+https://github.com/uiautodev/flashroute/releases/latest/download/update.json
 ```
 
-`FLASHROUTE_UPDATE_API` 返回最新 Release JSON；`FLASHROUTE_UPDATE_BASE_URL` 需要按 `v<version>/<asset-name>` 提供产物，`SHA256SUMS` 也从这个地址下载。标准 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量同样生效。
+这是普通 Release 资源下载，不调用 GitHub REST API，因此不会消耗未认证 API 的每小时额度。Manifest 包含版本、更新说明、资产名称、大小和 SHA-256。若 manifest 不存在，会回退到 Release 跳转 / Atom feed，最后才回退到 REST API。
 
+发现新版本后，FlashRoute 会下载对应产物（服务端二进制或 macOS DMG），使用 manifest 中的 SHA-256 校验，替换当前可执行文件并自动重启；重启后即为新版本。macOS 桌面版还会更新应用包信息并重新进行 ad-hoc 签名。
+
+静态镜像目录结构：
+
+```text
+update.json
+v<version>/<asset-name>
+v<version>/SHA256SUMS
+```
+
+```bash
+FLASHROUTE_UPDATE_MANIFEST_URL=https://mirror.example/flashroute/update.json
+FLASHROUTE_UPDATE_BASE_URL=https://mirror.example/flashroute
+```
+
+`FLASHROUTE_UPDATE_MANIFEST_URL` 指向 manifest，`FLASHROUTE_UPDATE_BASE_URL` 用于 `v<version>/<asset-name>` 下载和兼容旧的 `SHA256SUMS` 校验。若使用 GitHub API relay，可设置 `FLASHROUTE_UPDATE_API`，并通过 `FLASHROUTE_UPDATE_TOKEN` 添加 Bearer Token。`FLASHROUTE_UPDATE_LATEST_URL` 和 `FLASHROUTE_UPDATE_FEED` 可覆盖跳转和 Atom 地址。标准 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量同样生效。
 ## 聊天联网搜索
 
 聊天标题栏有「联网搜索」开关，默认开启。开启后模型会获得 `web_search` 和 `web_fetch` 两个 function tool，由模型自行决定何时调用。配置了 DeepSeek 供应商时，工具优先使用 DeepSeek 的 Search / Fetch API；否则回退到 Bing 搜索和直接网页抓取。提示词中同时包含当前时间。开启脱敏时，搜索查询会先脱敏再离开 FlashRoute。可通过 `FLASHROUTE_SEARCH_URL` 为回退搜索指定兼容的 Bing 或 DuckDuckGo HTML 端点或镜像。
@@ -253,7 +265,7 @@ git tag v1.2.3
 git push origin v1.2.3
 ```
 
-GitHub Actions 会构建前端、交叉编译服务端二进制、生成 macOS universal DMG（`FlashRoute-desktop-mac-<version>.dmg`），连同 `SHA256SUMS` 一起上传到 GitHub Release；配置 `NPM_TOKEN` 仓库密钥（npm automation token）后，还会发布同版本的 npm 包，包名为 `flashroute`。二进制版本号使用去掉前导 `v` 的 tag，commit hash 会注入二进制并显示在设置页。
+GitHub Actions 会构建前端、交叉编译服务端二进制、生成 macOS universal DMG（`FlashRoute-desktop-mac-<version>.dmg`），连同 `SHA256SUMS` 和 `update.json` manifest 一起上传到 GitHub Release；配置 `NPM_TOKEN` 仓库密钥（npm automation token）后，还会发布同版本的 npm 包，包名为 `flashroute`。二进制版本号使用去掉前导 `v` 的 tag，commit hash 会注入二进制并显示在设置页。
 
 ## License
 
