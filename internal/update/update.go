@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -51,7 +52,17 @@ type Options struct {
 	Restart     func() error
 }
 
+type Progress struct {
+	Active     bool    `json:"active"`
+	Stage      string  `json:"stage"`
+	Downloaded int64   `json:"downloaded"`
+	Total      int64   `json:"total"`
+	Percent    float64 `json:"percent"`
+}
+
 type Client struct {
+	progressMu  sync.Mutex
+	progress    Progress
 	manifestURL string
 	latestURL   string
 	feedURL     string
@@ -232,9 +243,21 @@ func (c *Client) Apply(ctx context.Context, info Info) (Result, error) {
 		return Result{}, err
 	}
 	dest := filepath.Join(dir, info.Asset)
-	if err := c.download(ctx, info.DownloadURL, info.ChecksumURL, info.SHA256, dest); err != nil {
+	c.setProgress(Progress{Active: true, Stage: "downloading", Total: info.AssetSize})
+	defer func() {
+		progress := c.Progress()
+		progress.Active = false
+		progress.Stage = "done"
+		if progress.Total > 0 {
+			progress.Downloaded = progress.Total
+			progress.Percent = 100
+		}
+		c.setProgress(progress)
+	}()
+	if err := c.download(ctx, info.DownloadURL, info.ChecksumURL, info.SHA256, info.AssetSize, dest); err != nil {
 		return Result{}, err
 	}
+	c.setProgress(Progress{Active: true, Stage: "installing", Downloaded: info.AssetSize, Total: info.AssetSize, Percent: 100})
 	if c.desktop {
 		if err := installDesktopAsset(dest, c.exe); err != nil {
 			return Result{}, err
@@ -564,7 +587,7 @@ func (c *Client) assetURL(release Release, name string) string {
 	return ""
 }
 
-func (c *Client) download(ctx context.Context, url, checksumURL, expectedSHA, dest string) error {
+func (c *Client) download(ctx context.Context, url, checksumURL, expectedSHA string, knownTotal int64, dest string) error {
 	expected := strings.ToLower(strings.TrimSpace(expectedSHA))
 	if expected == "" {
 		if checksumURL == "" {
@@ -597,7 +620,12 @@ func (c *Client) download(ctx context.Context, url, checksumURL, expectedSHA, de
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 	hash := sha256.New()
-	written, err := io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(resp.Body, maxDownloadSize+1))
+	total := resp.ContentLength
+	if total <= 0 {
+		total = knownTotal
+	}
+	progress := &progressWriter{client: c, total: total}
+	written, err := io.Copy(io.MultiWriter(tmp, hash, progress), io.LimitReader(resp.Body, maxDownloadSize+1))
 	if err != nil {
 		tmp.Close()
 		return err
@@ -648,6 +676,47 @@ func (c *Client) checksum(ctx context.Context, url, name string) (string, error)
 		}
 	}
 	return "", fmt.Errorf("no checksum found for %s", name)
+}
+
+type progressWriter struct {
+	client     *Client
+	total      int64
+	downloaded int64
+}
+
+func (w *progressWriter) Write(p []byte) (int, error) {
+	w.downloaded += int64(len(p))
+	w.client.setProgress(Progress{
+		Active: true, Stage: "downloading", Downloaded: w.downloaded, Total: w.total,
+		Percent: progressPercent(w.downloaded, w.total),
+	})
+	return len(p), nil
+}
+
+func progressPercent(downloaded, total int64) float64 {
+	if total <= 0 {
+		return 0
+	}
+	percent := float64(downloaded) / float64(total) * 100
+	if percent > 100 {
+		return 100
+	}
+	return percent
+}
+
+func (c *Client) setProgress(progress Progress) {
+	if progress.Percent == 0 && progress.Total > 0 {
+		progress.Percent = progressPercent(progress.Downloaded, progress.Total)
+	}
+	c.progressMu.Lock()
+	c.progress = progress
+	c.progressMu.Unlock()
+}
+
+func (c *Client) Progress() Progress {
+	c.progressMu.Lock()
+	defer c.progressMu.Unlock()
+	return c.progress
 }
 
 func replaceExecutable(source, target string) error {

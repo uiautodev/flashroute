@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCompareVersions(t *testing.T) {
@@ -325,4 +327,85 @@ func TestStripReleaseNotes(t *testing.T) {
 	if got != want {
 		t.Fatalf("notes = %q, want %q", got, want)
 	}
+}
+
+func TestApplyReportsDownloadProgress(t *testing.T) {
+	payload := make([]byte, 1<<20)
+	for i := range payload {
+		payload[i] = byte(i % 251)
+	}
+	sum := sha256.Sum256(payload)
+	hash := hex.EncodeToString(sum[:])
+	version := "0.3.4"
+	asset, _ := AssetName("linux", "amd64", version, false)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/update.json", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(Manifest{
+			Version: version, Tag: "v" + version,
+			Assets: []Asset{{Name: asset, Size: int64(len(payload)), SHA256: hash}},
+		})
+	})
+	mux.HandleFunc("/v"+version+"/"+asset, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(payload)))
+		for offset := 0; offset < len(payload); offset += 32 << 10 {
+			end := offset + 32<<10
+			if end > len(payload) {
+				end = len(payload)
+			}
+			_, _ = w.Write(payload[offset:end])
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "flashroute")
+	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	client := New(Options{
+		ManifestURL: srv.URL + "/update.json",
+		ReleaseBase: srv.URL,
+		DataDir:     filepath.Join(dir, "data"),
+		Executable:  exe,
+		GOOS:        "linux", GOARCH: "amd64",
+		HTTPClient: srv.Client(),
+	})
+	info, err := client.Check(context.Background(), "0.3.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.Apply(context.Background(), info)
+		done <- err
+	}()
+	sawActive, sawBytes := false, false
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		progress := client.Progress()
+		if progress.Active && progress.Stage == "downloading" {
+			sawActive = true
+			if progress.Downloaded > 0 && progress.Total > 0 && progress.Percent > 0 {
+				sawBytes = true
+			}
+		}
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !sawActive || !sawBytes {
+				t.Fatalf("progress was not observed: active=%v bytes=%v final=%+v", sawActive, sawBytes, client.Progress())
+			}
+			return
+		default:
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("update did not finish")
 }

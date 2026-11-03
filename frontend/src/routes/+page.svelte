@@ -1,5 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
+	import { isExternalURL, openExternal } from '#lib/external.js';
 	import { api } from '#lib/api.js';
 	import { lang, t, toggleLang } from '#lib/i18n.js';
 	import { cycleTheme, themeMode } from '#lib/theme.js';
@@ -44,6 +45,19 @@
 			if (nav.some((item) => item.id === next)) view = next;
 		});
 		await loadStatus();
+	});
+
+	function interceptExternalLink(event) {
+		if (event.defaultPrevented || event.button !== 0) return;
+		const anchor = event.target.closest?.('a[href]');
+		if (!anchor || anchor.hasAttribute('download') || !isExternalURL(anchor.href)) return;
+		event.preventDefault();
+		openExternal(anchor.href);
+	}
+
+	onMount(() => {
+		document.addEventListener('click', interceptExternalLink);
+		return () => document.removeEventListener('click', interceptExternalLink);
 	});
 
 	async function loadStatus() {

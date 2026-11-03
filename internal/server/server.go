@@ -114,6 +114,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/settings/desktop-port", s.admin(s.handleSetDesktopPort))
 	s.mux.HandleFunc("GET /api/update/check", s.admin(s.handleUpdateCheck))
 	s.mux.HandleFunc("POST /api/update/apply", s.admin(s.handleUpdateApply))
+	s.mux.HandleFunc("GET /api/update/status", s.admin(s.handleUpdateStatus))
 
 	s.mux.HandleFunc("OPTIONS /v1/", s.handleOptions)
 	s.mux.HandleFunc("GET /v1/models", s.gatewayAuth(s.handleGatewayModels))

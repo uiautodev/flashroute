@@ -1,4 +1,5 @@
 <script>
+	import { onDestroy } from 'svelte';
 	import { api } from '#lib/api.js';
 	import { lang, t } from '#lib/i18n.js';
 	import { toast } from '#lib/toast.js';
@@ -17,8 +18,14 @@
 	let applied = false;
 	let update = null;
 	let updateError = '';
+	let updateProgress = { active: false, stage: '', downloaded: 0, total: 0, percent: 0 };
+	let progressTimer = null;
 
-	$: endpoint = typeof location !== 'undefined' ? location.origin + '/v1' : '/v1';
+	$: endpoint = status.gateway_endpoint
+		? status.gateway_endpoint.replace(/\/$/, '') + '/v1'
+		: typeof location !== 'undefined'
+			? location.origin + '/v1'
+			: '/v1';
 
 	async function updatePassword() {
 		if (password.length < 8) {
@@ -71,10 +78,47 @@
 		}
 	}
 
+	function startProgressPolling() {
+		stopProgressPolling();
+		updateProgress = { active: true, stage: 'preparing', downloaded: 0, total: 0, percent: 0 };
+		progressTimer = setInterval(async () => {
+			try {
+				updateProgress = await api.get('/api/update/status');
+			} catch {
+				// The server may restart while the update is being applied.
+			}
+		}, 250);
+	}
+
+	function stopProgressPolling() {
+		if (progressTimer) {
+			clearInterval(progressTimer);
+			progressTimer = null;
+		}
+	}
+
+	function formatBytes(value) {
+		const bytes = Number(value || 0);
+		if (bytes < 1024) return `${bytes} B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	}
+
+	$: progressLabel = (() => {
+		if (updateProgress.stage === 'downloading') return $t('settings.updateDownloadingStage');
+		if (updateProgress.stage === 'installing') return $t('settings.updateInstallingStage');
+		if (updateProgress.stage === 'done') return $t('settings.updateRestartingStage');
+		return $t('settings.updatePreparing');
+	})();
+	$: progressPercent = updateProgress.total > 0 ? Math.min(100, Math.round(updateProgress.percent)) : 0;
+
+	onDestroy(stopProgressPolling);
+
 	async function installUpdate() {
 		if (!update?.available || updating) return;
 		updating = true;
 		updateError = '';
+		startProgressPolling();
 		try {
 			await api.post('/api/update/apply', {});
 			update = null;
@@ -85,6 +129,7 @@
 			updateError = err.message;
 			applied = false;
 		} finally {
+			stopProgressPolling();
 			updating = false;
 		}
 	}
@@ -288,6 +333,20 @@
 							{#if updating}<span class="spinner"></span>{:else}<Icon name="download" size={14} />{/if}
 							{updating ? $t('settings.updateDownloading') : $t('settings.updateInstall')}
 						</button>
+						{#if updating}
+							<div class="update-progress">
+								<div class="update-progress-head">
+									<span>{progressLabel}</span>
+									{#if updateProgress.total > 0}<span>{progressPercent}%</span>{/if}
+								</div>
+								<div class="progress-track">
+									<span style={`width:${updateProgress.total > 0 ? progressPercent : 8}%`}></span>
+								</div>
+								{#if updateProgress.total > 0}
+									<span class="update-progress-size">{formatBytes(updateProgress.downloaded)} / {formatBytes(updateProgress.total)}</span>
+								{/if}
+							</div>
+						{/if}
 						{#if update.release_url}
 							<a class="btn btn-ghost btn-sm" href={update.release_url} target="_blank" rel="noreferrer">
 								<Icon name="external" size={13} />{$t('settings.updateRelease')}
@@ -406,6 +465,38 @@
 		align-items: center;
 		gap: 8px;
 		flex-wrap: wrap;
+	}
+	.update-progress {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 5px;
+		margin-top: 3px;
+	}
+	.update-progress-head {
+		display: flex;
+		justify-content: space-between;
+		gap: 10px;
+		font-size: 10.5px;
+		color: var(--muted);
+	}
+	.progress-track {
+		height: 5px;
+		overflow: hidden;
+		border-radius: 999px;
+		background: var(--surface-inset);
+		border: 1px solid var(--line-soft);
+	}
+	.progress-track span {
+		display: block;
+		height: 100%;
+		min-width: 8%;
+		background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+		transition: width 0.2s ease;
+	}
+	.update-progress-size {
+		font-size: 10px;
+		color: var(--muted);
 	}
 	.release-notes {
 		width: 100%;

@@ -334,6 +334,10 @@ const messages = {
 		'settings.updateDev': 'This is a development build, so automatic updates are disabled.',
 		'settings.updateInstall': 'Install & restart',
 		'settings.updateDownloading': 'Downloading…',
+		'settings.updatePreparing': 'Preparing update…',
+		'settings.updateDownloadingStage': 'Downloading update…',
+		'settings.updateInstallingStage': 'Installing update…',
+		'settings.updateRestartingStage': 'Restarting…',
 		'settings.updateRestarting': 'Update installed. Restarting…',
 		'settings.updateRestartTimeout': 'The update was installed, but the restart did not finish. Restart FlashRoute manually.',
 		'settings.updateRelease': 'Release notes'
@@ -660,6 +664,10 @@ const messages = {
 		'settings.updateDev': '当前是开发版本，无法自动更新。',
 		'settings.updateInstall': '安装并重启',
 		'settings.updateDownloading': '下载中…',
+		'settings.updatePreparing': '准备更新…',
+		'settings.updateDownloadingStage': '正在下载更新…',
+		'settings.updateInstallingStage': '正在安装更新…',
+		'settings.updateRestartingStage': '正在重启…',
 		'settings.updateRestarting': '更新已安装，正在重启…',
 		'settings.updateRestartTimeout': '更新已安装，但重启未完成，请手动重启 FlashRoute。',
 		'settings.updateRelease': 'Release 说明'

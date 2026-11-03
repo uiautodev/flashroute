@@ -53,3 +53,7 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 }
+
+func (s *Server) handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.opts.Updater.Progress())
+}
