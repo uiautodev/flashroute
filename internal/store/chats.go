@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS messages (
 	provider TEXT NOT NULL DEFAULT '',
 	redacted INTEGER NOT NULL DEFAULT 0,
 	tools TEXT NOT NULL DEFAULT '[]',
+	tool_calls TEXT NOT NULL DEFAULT '[]',
 	created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id);
@@ -69,6 +70,9 @@ func (s *Store) initChats() error {
 		return fmt.Errorf("migrate chat database: %w", err)
 	}
 	if err := ensureMessageColumn(db, "tools", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
+		return fmt.Errorf("migrate chat database: %w", err)
+	}
+	if err := ensureMessageColumn(db, "tool_calls", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
 		return fmt.Errorf("migrate chat database: %w", err)
 	}
 	if err := s.migrateLegacyChats(); err != nil {
@@ -114,7 +118,7 @@ func ensureMessageColumn(db *sql.DB, name, definition string) error {
 }
 
 func (s *Store) loadAllMessages(chatID string) ([]config.ChatMessage, error) {
-	rows, err := s.db.Query(`SELECT id, parent_id, role, content, reasoning, images, model, provider, redacted, tools, created_at
+	rows, err := s.db.Query(`SELECT id, parent_id, role, content, reasoning, images, model, provider, redacted, tools, tool_calls, created_at
 		FROM messages WHERE chat_id = ? ORDER BY created_at, rowid`, chatID)
 	if err != nil {
 		return nil, err
@@ -137,13 +141,14 @@ type messageScanner interface {
 
 func scanMessage(row messageScanner) (config.ChatMessage, error) {
 	var message config.ChatMessage
-	var images, tools string
+	var images, tools, toolCalls string
 	if err := row.Scan(&message.ID, &message.ParentID, &message.Role, &message.Content, &message.Reasoning,
-		&images, &message.Model, &message.Provider, &message.Redacted, &tools, &message.CreatedAt); err != nil {
+		&images, &message.Model, &message.Provider, &message.Redacted, &tools, &toolCalls, &message.CreatedAt); err != nil {
 		return message, err
 	}
 	_ = json.Unmarshal([]byte(images), &message.Images)
 	_ = json.Unmarshal([]byte(tools), &message.Tools)
+	_ = json.Unmarshal([]byte(toolCalls), &message.ToolCalls)
 	return message, nil
 }
 
@@ -259,11 +264,12 @@ func (s *Store) InsertMessage(chatID string, message config.ChatMessage) error {
 	defer s.chatMu.Unlock()
 	images, _ := json.Marshal(message.Images)
 	tools, _ := json.Marshal(message.Tools)
+	toolCalls, _ := json.Marshal(message.ToolCalls)
 	_, err := s.db.Exec(`INSERT INTO messages
-		(id, chat_id, parent_id, role, content, reasoning, images, model, provider, redacted, tools, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(id, chat_id, parent_id, role, content, reasoning, images, model, provider, redacted, tools, tool_calls, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		message.ID, chatID, message.ParentID, message.Role, message.Content, message.Reasoning,
-		string(images), message.Model, message.Provider, message.Redacted, string(tools), message.CreatedAt)
+		string(images), message.Model, message.Provider, message.Redacted, string(tools), string(toolCalls), message.CreatedAt)
 	return err
 }
 
@@ -292,7 +298,7 @@ func (s *Store) Message(chatID, messageID string) (config.ChatMessage, bool) {
 }
 
 func (s *Store) messageLocked(chatID, messageID string) (config.ChatMessage, bool) {
-	row := s.db.QueryRow(`SELECT id, parent_id, role, content, reasoning, images, model, provider, redacted, tools, created_at
+	row := s.db.QueryRow(`SELECT id, parent_id, role, content, reasoning, images, model, provider, redacted, tools, tool_calls, created_at
 		FROM messages WHERE chat_id = ? AND id = ?`, chatID, messageID)
 	message, err := scanMessage(row)
 	if err != nil {
@@ -302,7 +308,7 @@ func (s *Store) messageLocked(chatID, messageID string) (config.ChatMessage, boo
 }
 
 func (s *Store) siblingsLocked(chatID, parentID, role string) []config.ChatMessage {
-	rows, err := s.db.Query(`SELECT id, parent_id, role, content, reasoning, images, model, provider, redacted, tools, created_at
+	rows, err := s.db.Query(`SELECT id, parent_id, role, content, reasoning, images, model, provider, redacted, tools, tool_calls, created_at
 		FROM messages WHERE chat_id = ? AND parent_id = ? AND role = ?
 		ORDER BY created_at, rowid`, chatID, parentID, role)
 	if err != nil {

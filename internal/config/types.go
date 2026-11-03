@@ -351,20 +351,30 @@ type Chat struct {
 	UpdatedAt       string        `yaml:"updated_at" json:"updated_at"`
 }
 
+type ChatToolCall struct {
+	ID        string `yaml:"id,omitempty" json:"id,omitempty"`
+	Name      string `yaml:"name" json:"name"`
+	Arguments string `yaml:"arguments,omitempty" json:"arguments,omitempty"`
+	Detail    string `yaml:"detail,omitempty" json:"detail,omitempty"`
+	Status    string `yaml:"status,omitempty" json:"status,omitempty"`
+	Summary   string `yaml:"summary,omitempty" json:"summary,omitempty"`
+}
+
 type ChatMessage struct {
-	ID           string   `yaml:"id" json:"id"`
-	ParentID     string   `yaml:"parent_id,omitempty" json:"parent_id,omitempty"`
-	Role         string   `yaml:"role" json:"role"`
-	Content      string   `yaml:"content" json:"content"`
-	Reasoning    string   `yaml:"reasoning,omitempty" json:"reasoning,omitempty"`
-	Images       []string `yaml:"images,omitempty" json:"images,omitempty"`
-	Model        string   `yaml:"model,omitempty" json:"model,omitempty"`
-	Provider     string   `yaml:"provider,omitempty" json:"provider,omitempty"`
-	Tools        []string `yaml:"-" json:"tools,omitempty"`
-	Redacted     bool     `yaml:"-" json:"redacted,omitempty"`
-	VersionIndex int      `yaml:"-" json:"version_index,omitempty"`
-	VersionCount int      `yaml:"-" json:"version_count,omitempty"`
-	CreatedAt    string   `yaml:"created_at" json:"created_at"`
+	ID           string         `yaml:"id" json:"id"`
+	ParentID     string         `yaml:"parent_id,omitempty" json:"parent_id,omitempty"`
+	Role         string         `yaml:"role" json:"role"`
+	Content      string         `yaml:"content" json:"content"`
+	Reasoning    string         `yaml:"reasoning,omitempty" json:"reasoning,omitempty"`
+	Images       []string       `yaml:"images,omitempty" json:"images,omitempty"`
+	Model        string         `yaml:"model,omitempty" json:"model,omitempty"`
+	Provider     string         `yaml:"provider,omitempty" json:"provider,omitempty"`
+	Tools        []string       `yaml:"-" json:"tools,omitempty"`
+	ToolCalls    []ChatToolCall `yaml:"-" json:"tool_calls,omitempty"`
+	Redacted     bool           `yaml:"-" json:"redacted,omitempty"`
+	VersionIndex int            `yaml:"-" json:"version_index,omitempty"`
+	VersionCount int            `yaml:"-" json:"version_count,omitempty"`
+	CreatedAt    string         `yaml:"created_at" json:"created_at"`
 }
 
 func Now() string {

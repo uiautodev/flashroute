@@ -28,6 +28,8 @@ type chatSendRequest struct {
 	Images              []string             `json:"images"`
 	Privacy             bool                 `json:"privacy"`
 	WebSearch           bool                 `json:"web_search"`
+	Thinking            *bool                `json:"thinking"`
+	ThinkingLevel       string               `json:"thinking_level"`
 	Stream              bool                 `json:"stream"`
 	EditMessageID       string               `json:"edit_message_id"`
 	RegenerateMessageID string               `json:"regenerate_message_id"`
@@ -363,7 +365,19 @@ func (s *Server) chatPayload(ctx context.Context, prep *preparedChat) ([]byte, e
 		payload["tools"] = chatToolDefinitions
 		payload["tool_choice"] = "auto"
 	}
+	if prep.req.Thinking == nil || *prep.req.Thinking {
+		payload["reasoning_effort"] = thinkingLevel(prep.req.ThinkingLevel)
+	}
 	return json.Marshal(payload)
+}
+
+func thinkingLevel(level string) string {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "minimal", "medium", "high":
+		return strings.ToLower(strings.TrimSpace(level))
+	default:
+		return "low"
+	}
 }
 
 func (s *Server) webSearchContext(ctx context.Context, prep *preparedChat, redactor *redact.Redactor) string {
@@ -430,12 +444,12 @@ func containsSensitive(redactor *redact.Redactor, text string) bool {
 	return redactor.MaskText(text) != text
 }
 
-func (s *Server) commitChat(prep *preparedChat, text, reasoning, providerID, providerName, model string, tools []string) (config.Chat, config.ChatMessage, error) {
+func (s *Server) commitChat(prep *preparedChat, text, reasoning, providerID, providerName, model string, tools []string, toolCalls []config.ChatToolCall) (config.Chat, config.ChatMessage, error) {
 	now := config.Now()
 	assistantMsg := config.ChatMessage{
 		ID: store.NewID(), ParentID: prep.assistantParentID, Role: "assistant",
 		Content: strings.TrimSpace(text), Reasoning: strings.TrimSpace(reasoning),
-		Model: providerID + "/" + model, Provider: providerName, Tools: tools, CreatedAt: now,
+		Model: providerID + "/" + model, Provider: providerName, Tools: tools, ToolCalls: toolCalls, CreatedAt: now,
 	}
 	if prep.req.Privacy {
 		messages := append([]config.ChatMessage(nil), prep.history...)
@@ -525,7 +539,7 @@ func (s *Server) handleSendChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	chat, assistant, err := s.commitChat(prep, result.Content, result.Reasoning, result.ProviderID, result.Provider, result.Model, result.Tools)
+	chat, assistant, err := s.commitChat(prep, result.Content, result.Reasoning, result.ProviderID, result.Provider, result.Model, result.Tools, result.ToolCalls)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -589,7 +603,7 @@ func (s *Server) handleSendChatStream(w http.ResponseWriter, r *http.Request, pr
 	if r.Context().Err() != nil {
 		return
 	}
-	chat, assistant, err := s.commitChat(prep, result.Content, result.Reasoning, result.ProviderID, result.Provider, result.Model, result.Tools)
+	chat, assistant, err := s.commitChat(prep, result.Content, result.Reasoning, result.ProviderID, result.Provider, result.Model, result.Tools, result.ToolCalls)
 	if err != nil {
 		send("error", map[string]string{"error": err.Error()})
 		return

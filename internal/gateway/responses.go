@@ -17,6 +17,7 @@ type responsesRequest struct {
 	Stream          bool             `json:"stream"`
 	Temperature     *float64         `json:"temperature,omitempty"`
 	MaxOutputTokens *int             `json:"max_output_tokens,omitempty"`
+	Reasoning       map[string]any   `json:"reasoning,omitempty"`
 }
 
 type responsesResponse struct {
@@ -52,6 +53,7 @@ func chatToResponses(body []byte, model string, stream bool) ([]byte, error) {
 		Temperature         *float64 `json:"temperature"`
 		MaxTokens           *int     `json:"max_tokens"`
 		MaxCompletionTokens *int     `json:"max_completion_tokens"`
+		ReasoningEffort     string   `json:"reasoning_effort"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("decode chat request: %w", err)
@@ -99,6 +101,9 @@ func chatToResponses(body []byte, model string, stream bool) ([]byte, error) {
 		Stream:          stream,
 		Temperature:     req.Temperature,
 		MaxOutputTokens: maxTokens,
+	}
+	if effort := strings.TrimSpace(req.ReasoningEffort); effort != "" {
+		out.Reasoning = map[string]any{"effort": effort}
 	}
 	return json.Marshal(out)
 }

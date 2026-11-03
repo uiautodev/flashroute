@@ -22,6 +22,9 @@
 	let model = '';
 	let privacy = false;
 	let webSearch = typeof localStorage !== 'undefined' ? localStorage.getItem('flashroute.webSearch') !== 'false' : true;
+	let thinking = typeof localStorage !== 'undefined' ? localStorage.getItem('flashroute.thinking') !== 'false' : true;
+	let thinkingLevel = typeof localStorage !== 'undefined' ? localStorage.getItem('flashroute.thinkingLevel') || 'low' : 'low';
+	if (!['low', 'medium', 'high'].includes(thinkingLevel)) thinkingLevel = 'low';
 	let text = '';
 	let attachments = [];
 	let sending = false;
@@ -230,6 +233,7 @@
 			role: 'assistant',
 			content: '',
 			reasoning: '',
+			tool_calls: [],
 			created_at: new Date().toISOString()
 		};
 		messages = [...messages, optimistic, placeholder];
@@ -248,6 +252,8 @@
 					images: outgoingImages,
 					privacy,
 					web_search: webSearch,
+					thinking,
+					thinking_level: thinkingLevel,
 					stream: true,
 					history
 				},
@@ -303,7 +309,7 @@
 		messages = [
 			...messages.slice(0, index),
 			editedUser,
-			{ id: assistantID, role: 'assistant', content: '', reasoning: '', created_at: new Date().toISOString() }
+			{ id: assistantID, role: 'assistant', content: '', reasoning: '', tool_calls: [], created_at: new Date().toISOString() }
 		];
 		if (!regenerate) editingID = '';
 		streamingMessageID = assistantID;
@@ -320,6 +326,8 @@
 					images: [],
 					privacy,
 					web_search: webSearch,
+					thinking,
+					thinking_level: thinkingLevel,
 					stream: true,
 					edit_message_id: message.id,
 					history
@@ -358,7 +366,7 @@
 		const run = startRun(previousMessages, null, []);
 		const assistantID = 'stream-' + Date.now();
 		messages = messages.map((item, i) =>
-			i === index ? { ...item, id: assistantID, content: '', reasoning: '' } : item
+			i === index ? { ...item, id: assistantID, content: '', reasoning: '', tool_calls: [] } : item
 		);
 		streamingMessageID = assistantID;
 		savingEdit = true;
@@ -371,6 +379,8 @@
 					chat_id: current.id,
 					model,
 					web_search: webSearch,
+					thinking,
+					thinking_level: thinkingLevel,
 					regenerate_message_id: message.id,
 					privacy: false,
 					stream: true,
@@ -438,10 +448,29 @@
 				);
 				scheduleScroll();
 			}
-		} else if (event === 'tool') {
-			toolStatus = data.name === 'web_fetch' ? $t('chat.fetchingPage') : $t('chat.searchingWeb');
-		} else if (event === 'tool_done') {
-			toolStatus = '';
+		} else if (event === 'tool' || event === 'tool_done') {
+			const done = event === 'tool_done';
+			const detail = data.detail || data.arguments || '';
+			toolStatus = done ? '' : detail || (data.name === 'web_fetch' ? $t('chat.fetchingPage') : $t('chat.searchingWeb'));
+			messages = messages.map((message) => {
+				if (message.id !== assistantID) return message;
+				const calls = [...(message.tool_calls || [])];
+				const callID = data.id || `${data.name}:${calls.length}`;
+				const index = calls.findIndex((call) => call.id === callID);
+				const entry = {
+					...(index >= 0 ? calls[index] : {}),
+					id: callID,
+					name: data.name,
+					arguments: data.arguments || '',
+					detail,
+					status: done ? data.status || 'done' : 'running',
+					summary: done ? data.summary || '' : ''
+				};
+				if (index >= 0) calls[index] = entry;
+				else calls.push(entry);
+				return { ...message, tool_calls: calls };
+			});
+			if (!done) scheduleScroll();
 		} else if (event === 'done') {
 			toolStatus = '';
 			messages = data.chat.messages || [];
@@ -476,14 +505,20 @@
 		return composing || event.isComposing || event.keyCode === 229 || performance.now() - compositionEndedAt < 80;
 	}
 
+	function toolName(name) {
+		if (name === 'web_fetch') return $t('chat.webFetchTool');
+		if (name === 'web_search') return $t('chat.webSearchTool');
+		return name;
+	}
+
 	function toolLabel(tools) {
-		const names = tools.map((tool) => (tool === 'web_fetch' ? $t('chat.webFetchTool') : $t('chat.webSearchTool')));
+		const names = tools.map((tool) => toolName(tool));
 		return $t('chat.usedTools', { tools: names.join(' · ') });
 	}
 
 	function reasoningOpen(message) {
 		if (typeof message.reasoningOpen === 'boolean') return message.reasoningOpen;
-		return !message.content;
+		return false;
 	}
 
 	function toggleReasoning(message) {
@@ -580,6 +615,15 @@
 	function toggleWebSearch() {
 		webSearch = !webSearch;
 		localStorage.setItem('flashroute.webSearch', String(webSearch));
+	}
+
+	function toggleThinking() {
+		thinking = !thinking;
+		localStorage.setItem('flashroute.thinking', String(thinking));
+	}
+
+	function changeThinkingLevel() {
+		localStorage.setItem('flashroute.thinkingLevel', thinkingLevel);
 	}
 
 	function closeHistory() {
@@ -729,6 +773,30 @@
 						title={$t('chat.webSearchHint')}
 					></button>
 				</div>
+				<div class="thinking-control">
+					<Icon name="spark" size={15} />
+					<span>{$t('chat.thinking')}</span>
+					<button
+						class="switch small"
+						class:on={thinking}
+						onclick={toggleThinking}
+						aria-label={$t('chat.thinking')}
+						aria-pressed={thinking}
+					></button>
+					{#if thinking}
+						<select
+							class="select thinking-level"
+							bind:value={thinkingLevel}
+							onchange={changeThinkingLevel}
+							aria-label={$t('chat.thinkingLevel')}
+							title={$t('chat.thinkingLevel')}
+						>
+							<option value="low">{$t('chat.thinkingLow')}</option>
+							<option value="medium">{$t('chat.thinkingMedium')}</option>
+							<option value="high">{$t('chat.thinkingHigh')}</option>
+						</select>
+					{/if}
+				</div>
 				<div class="privacy-control">
 					<Icon name="shield" size={15} />
 					<span>{$t('chat.privacy')}</span>
@@ -814,9 +882,29 @@
 										</button>
 									</div>
 								</div>
-							{:else if message.id === streamingMessageID && !message.content && !message.reasoning}
-								<div class="thinking"><span class="spinner"></span>{toolStatus || $t('chat.sending')}</div>
 							{:else}
+								{#if message.tool_calls?.length}
+									<div class="tool-activity">
+										{#each message.tool_calls as call (call.id)}
+											<div class="tool-call" class:error={call.status === 'error'}>
+												<span class="tool-call-icon"><Icon name={call.name === 'web_fetch' ? 'download' : 'globe'} size={13} /></span>
+												<div class="tool-call-body">
+													<span class="tool-call-name">{toolName(call.name)}</span>
+													{#if call.detail}<span class="tool-call-detail" title={call.detail}>{call.detail}</span>{/if}
+													{#if call.summary}<span class="tool-call-summary">{call.summary}</span>{/if}
+												</div>
+												{#if call.status === 'running'}
+													<span class="spinner"></span>
+												{:else}
+													<span class="tool-call-state"><Icon name={call.status === 'error' ? 'alert' : 'check'} size={12} /></span>
+												{/if}
+											</div>
+										{/each}
+									</div>
+								{/if}
+								{#if message.id === streamingMessageID && !message.content && !message.tool_calls?.some((call) => call.status === 'running')}
+									<div class="thinking"><span class="spinner"></span>{toolStatus || $t('chat.sending')}</div>
+								{/if}
 								{#if message.reasoning && reasoningOpen(message)}
 									<div class="reasoning-block">
 										<div class="reasoning-text">{message.reasoning}</div>
@@ -850,7 +938,7 @@
 												<Icon name="refresh" size={13} />
 											</button>
 										{/if}
-										{#if message.role === 'assistant' && message.tools?.length}
+										{#if message.role === 'assistant' && message.tools?.length && !message.tool_calls?.length}
 											<span class="tool-indicator" title={toolLabel(message.tools)} aria-label={toolLabel(message.tools)}>
 												<Icon name="globe" size={13} />
 											</span>
@@ -1193,12 +1281,19 @@
 		justify-content: flex-end;
 	}
 	.privacy-control,
-	.websearch-control {
+	.websearch-control,
+	.thinking-control {
 		display: flex;
 		align-items: center;
 		gap: 7px;
 		font-size: 11.5px;
 		color: var(--muted);
+	}
+	.thinking-level {
+		width: auto;
+		padding: 4px 6px;
+		font-size: 10.5px;
+		background-color: var(--surface-inset);
 	}
 	.privacy-state {
 		width: 22px;
@@ -1546,6 +1641,66 @@
 		object-fit: cover;
 		border-radius: 9px;
 		border: 1px solid var(--line);
+	}
+	.tool-activity {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		margin-bottom: 8px;
+	}
+	.tool-call {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 7px 9px;
+		border: 1px solid var(--line-soft);
+		border-radius: 9px;
+		background: var(--surface-inset);
+		color: var(--text-soft);
+		font-size: 11px;
+	}
+	.tool-call.error {
+		border-color: rgba(251, 113, 133, 0.25);
+		color: var(--danger-text);
+	}
+	.tool-call-icon {
+		width: 22px;
+		height: 22px;
+		border-radius: 7px;
+		display: grid;
+		place-items: center;
+		background: var(--accent-soft);
+		color: var(--accent);
+		flex: none;
+	}
+	.tool-call.error .tool-call-icon {
+		background: var(--danger-soft);
+		color: var(--danger-text);
+	}
+	.tool-call-body {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+	}
+	.tool-call-name {
+		font-weight: 600;
+	}
+	.tool-call-detail,
+	.tool-call-summary {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--muted);
+		font-size: 10px;
+	}
+	.tool-call-state {
+		flex: none;
+		color: var(--accent);
+	}
+	.tool-call.error .tool-call-state {
+		color: var(--danger-text);
 	}
 	.reasoning-block {
 		margin-bottom: 7px;

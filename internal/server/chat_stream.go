@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+
+	"github.com/uiautodev/flashroute/internal/config"
 )
 
 type chatToolCall struct {
@@ -241,9 +243,42 @@ type chatRoundResult struct {
 	Content    string
 	Reasoning  string
 	Tools      []string
+	ToolCalls  []config.ChatToolCall
 	ProviderID string
 	Provider   string
 	Model      string
+}
+
+func chatToolDetail(call chatToolCall) string {
+	switch call.Name {
+	case "web_search":
+		var args struct {
+			Query string `json:"query"`
+		}
+		if json.Unmarshal([]byte(call.Arguments), &args) == nil {
+			return truncate(strings.TrimSpace(args.Query), 300)
+		}
+	case "web_fetch":
+		var args struct {
+			URL string `json:"url"`
+		}
+		if json.Unmarshal([]byte(call.Arguments), &args) == nil {
+			return truncate(strings.TrimSpace(args.URL), 300)
+		}
+	}
+	return truncate(strings.TrimSpace(call.Arguments), 300)
+}
+
+func chatToolResultView(call chatToolCall, output string) config.ChatToolCall {
+	view := config.ChatToolCall{
+		ID: call.ID, Name: call.Name, Arguments: call.Arguments,
+		Detail: chatToolDetail(call), Status: "done",
+	}
+	if strings.HasPrefix(strings.TrimSpace(output), "Error:") {
+		view.Status = "error"
+		view.Summary = truncate(strings.TrimSpace(output), 180)
+	}
+	return view
 }
 
 func (s *Server) runChatStream(ctx context.Context, prep *preparedChat, payload []byte, send func(string, any) bool) (chatRoundResult, error) {
@@ -295,7 +330,11 @@ func (s *Server) runChatStream(ctx context.Context, prep *preparedChat, payload 
 		toolMessages := make([]map[string]any, 0, len(result.ToolCalls))
 		for _, call := range result.ToolCalls {
 			out.Tools = appendUnique(out.Tools, call.Name)
-			send("tool", map[string]string{"name": call.Name, "status": "searching"})
+			running := config.ChatToolCall{
+				ID: call.ID, Name: call.Name, Arguments: call.Arguments,
+				Detail: chatToolDetail(call), Status: "running",
+			}
+			send("tool", running)
 			output := s.executeChatTool(ctx, call)
 			toolOutputs = append(toolOutputs, output)
 			toolMessages = append(toolMessages, map[string]any{
@@ -303,7 +342,9 @@ func (s *Server) runChatStream(ctx context.Context, prep *preparedChat, payload 
 				"tool_call_id": call.ID,
 				"content":      output,
 			})
-			send("tool_done", map[string]string{"name": call.Name})
+			view := chatToolResultView(call, output)
+			out.ToolCalls = append(out.ToolCalls, view)
+			send("tool_done", view)
 		}
 		payload, err = appendToolExchange(payload, result, toolMessages)
 		if err != nil {
@@ -403,6 +444,7 @@ func (s *Server) runChatComplete(ctx context.Context, prep *preparedChat, payloa
 			out.Tools = appendUnique(out.Tools, call.Name)
 			output := s.executeChatTool(ctx, call)
 			toolOutputs = append(toolOutputs, output)
+			out.ToolCalls = append(out.ToolCalls, chatToolResultView(call, output))
 			toolMessages = append(toolMessages, map[string]any{
 				"role":         "tool",
 				"tool_call_id": call.ID,

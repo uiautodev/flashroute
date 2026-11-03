@@ -506,6 +506,30 @@ func TestChatWebSearchToolStream(t *testing.T) {
 	if !strings.Contains(body, `"tools":["web_search"]`) {
 		t.Fatalf("done event has no tool marker: %s", body)
 	}
+	if !strings.Contains(body, `"detail":"latest go version"`) || !strings.Contains(body, `"tool_calls":[`) {
+		t.Fatalf("done event has no detailed tool calls: %s", body)
+	}
+	listRec := doAPI(t, h, http.MethodGet, "/api/chats", nil)
+	var list struct {
+		Chats []chatSummary `json:"chats"`
+	}
+	if err := json.Unmarshal(listRec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Chats) != 1 {
+		t.Fatalf("chats = %+v", list.Chats)
+	}
+	chatRec := doAPI(t, h, http.MethodGet, "/api/chats/"+list.Chats[0].ID, nil)
+	var chat config.Chat
+	if err := json.Unmarshal(chatRec.Body.Bytes(), &chat); err != nil {
+		t.Fatal(err)
+	}
+	if len(chat.Messages) != 2 || len(chat.Messages[1].ToolCalls) != 1 {
+		t.Fatalf("saved tool calls = %+v", chat.Messages)
+	}
+	if call := chat.Messages[1].ToolCalls[0]; call.Name != "web_search" || call.Detail != "latest go version" || call.Status != "done" {
+		t.Fatalf("saved call = %+v", call)
+	}
 	if len(searcher.queries) != 1 || searcher.queries[0] != "latest go version" {
 		t.Fatalf("queries = %+v", searcher.queries)
 	}
@@ -636,4 +660,51 @@ func TestGatewayLocalNoKeyToggle(t *testing.T) {
 
 	doAPI(t, h, http.MethodPost, "/api/keys/local-no-key", map[string]any{"enabled": true})
 	doAPI(t, h, http.MethodGet, "/v1/models", nil)
+}
+
+func TestChatReasoningEffort(t *testing.T) {
+	var bodies []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+	}))
+	defer upstream.Close()
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.UpsertProvider(config.Provider{
+		ID: "mock", Name: "Mock", BaseURL: upstream.URL + "/v1", APIType: "completions", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetProviderModels("mock", []config.Model{{ID: "chat"}}); err != nil {
+		t.Fatal(err)
+	}
+	h := New(st, gateway.New(st), Options{Version: "test"}).Handler()
+
+	doAPI(t, h, http.MethodPost, "/api/chat", map[string]any{
+		"model": "mock/chat", "message": "one", "privacy": true, "stream": false,
+	})
+	doAPI(t, h, http.MethodPost, "/api/chat", map[string]any{
+		"model": "mock/chat", "message": "two", "privacy": true, "stream": false, "thinking": false,
+	})
+	doAPI(t, h, http.MethodPost, "/api/chat", map[string]any{
+		"model": "mock/chat", "message": "three", "privacy": true, "stream": false,
+		"thinking": true, "thinking_level": "high",
+	})
+	if len(bodies) != 3 {
+		t.Fatalf("upstream bodies = %d", len(bodies))
+	}
+	if !strings.Contains(bodies[0], `"reasoning_effort":"low"`) {
+		t.Fatalf("default reasoning = %s", bodies[0])
+	}
+	if strings.Contains(bodies[1], "reasoning_effort") {
+		t.Fatalf("disabled reasoning = %s", bodies[1])
+	}
+	if !strings.Contains(bodies[2], `"reasoning_effort":"high"`) {
+		t.Fatalf("high reasoning = %s", bodies[2])
+	}
 }
