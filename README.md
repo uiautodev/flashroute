@@ -27,7 +27,7 @@ English | [简体中文](README.zh-CN.md)
 - **Languages and themes**: Chinese / English, dark / light / follow system.
 - **Access control**: localhost and desktop sessions need no password; remote access must set one. Use `-require-auth` behind a local reverse proxy.
 - **Single binary**: SvelteKit assets are embedded with `go:embed`.
-- **Desktop app**: optional Wails v3 shell reusing the same Go HTTP handler and frontend; it serves the OpenAI-compatible gateway on `http://127.0.0.1:11211` by default (configurable), and macOS streaming is supported through the Wails v3 asset server.
+- **Desktop app**: optional Wails v3 shell reusing the same Go HTTP handler and frontend; it serves the OpenAI-compatible gateway on `http://127.0.0.1:11211` by default (configurable), and macOS streaming is supported through the Wails v3 asset server. Closing the window keeps the app running in the menu bar; click the menu bar icon to reopen it or right-click to quit.
 - **Agent integrations**: detect Claude Code, Codex, OpenCode and Pi, then apply the selected chat model with one click. Claude Code uses FlashRoute's Anthropic-compatible gateway; Codex uses the Responses API; OpenCode and Pi get FlashRoute as an OpenAI-compatible provider. All requests go through the selected route alias or model.
 - **In-app updates**: check the latest GitHub release from Settings, verify the downloaded asset with `SHA256SUMS`, install it and restart automatically. macOS desktop builds update the app bundle and re-sign it ad hoc.
 

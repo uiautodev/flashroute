@@ -14,6 +14,7 @@
 	import SecurityView from '#lib/components/SecurityView.svelte';
 	import SettingsView from '#lib/components/SettingsView.svelte';
 	import AgentsView from '#lib/components/AgentsView.svelte';
+	import ConfirmDialog from '#lib/components/ConfirmDialog.svelte';
 
 	const nav = [
 		{ id: 'chat', icon: 'chat', label: 'nav.chat', title: 'chat.title', sub: 'chat.subtitle' },
@@ -188,4 +189,5 @@
 	</div>
 {/if}
 
+<ConfirmDialog />
 <ToastStack />

@@ -27,7 +27,7 @@
 - **多语言与主题**：中文 / English，暗黑 / 亮色 / 跟随系统。
 - **访问控制**：localhost 和桌面版免密码；远程访问必须设置密码。反向代理场景可加 `-require-auth`。
 - **独立二进制**：SvelteKit 构建产物通过 `go:embed` 打包，单个 Go 二进制即可运行。
-- **桌面应用**：可选 Wails v3 桌面壳，复用同一套 Go HTTP handler 和前端；默认在 `http://127.0.0.1:11211` 提供 OpenAI 兼容网关（端口可自定义），macOS 通过 Wails v3 asset server 支持流式输出。
+- **桌面应用**：可选 Wails v3 桌面壳，复用同一套 Go HTTP handler 和前端；默认在 `http://127.0.0.1:11211` 提供 OpenAI 兼容网关（端口可自定义），macOS 通过 Wails v3 asset server 支持流式输出。关闭窗口后应用会留在菜单栏，点击菜单栏图标可重新打开，右键菜单可退出。
 - **Agent 接入**：自动检测 Claude Code、Codex、OpenCode、Pi，选择模型后一键写入配置。Claude Code 走 Anthropic 兼容接口，Codex 走 Responses API，OpenCode 和 Pi 走 OpenAI 兼容接口，请求都会经过所选路由别名或模型。
 - **应用内更新**：在设置页检查最新 GitHub Release，使用 `SHA256SUMS` 校验下载产物，安装后自动重启。macOS 桌面版会更新应用包并重新进行 ad-hoc 签名。
 

@@ -3,6 +3,7 @@
 	import { api } from '#lib/api.js';
 	import { t } from '#lib/i18n.js';
 	import { toast } from '#lib/toast.js';
+	import { confirmDialog } from '#lib/confirm.js';
 	import Icon from './Icon.svelte';
 	import claudeLogo from '#lib/assets/claude-code.svg?url';
 	import opencodeLogo from '#lib/assets/opencode.svg?url';
@@ -54,7 +55,7 @@
 	}
 
 	async function disconnect(agent) {
-		if (!confirm($t('agents.disconnectConfirm', { agent: agent.name }))) return;
+		if (agent.id !== 'claude' && !(await confirmDialog({ message: $t('agents.disconnectConfirm', { agent: agent.name }), confirmLabel: $t('agents.disconnect') }))) return;
 		disconnecting = agent.id;
 		result = null;
 		try {

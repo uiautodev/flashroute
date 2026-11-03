@@ -3,6 +3,7 @@
 	import { api, formatTime } from '#lib/api.js';
 	import { t } from '#lib/i18n.js';
 	import { toast } from '#lib/toast.js';
+	import { confirmDialog } from '#lib/confirm.js';
 	import Icon from './Icon.svelte';
 	import CopyButton from './CopyButton.svelte';
 	import Modal from './Modal.svelte';
@@ -66,7 +67,7 @@
 	}
 
 	async function remove(key) {
-		if (!confirm($t('keys.deleteConfirm', { name: key.name }))) return;
+		if (!(await confirmDialog({ message: $t('keys.deleteConfirm', { name: key.name }), confirmLabel: $t('common.delete') }))) return;
 		try {
 			await api.del('/api/keys/' + key.id);
 			toast($t('common.delete'), 'success');

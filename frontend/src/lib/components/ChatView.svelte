@@ -3,6 +3,7 @@
 	import { api, relativeTime } from '#lib/api.js';
 	import { t } from '#lib/i18n.js';
 	import { toast } from '#lib/toast.js';
+	import { confirmDialog } from '#lib/confirm.js';
 	import Icon from './Icon.svelte';
 	import CopyButton from './CopyButton.svelte';
 	import { marked } from 'marked';
@@ -127,7 +128,7 @@
 	}
 
 	async function clearHistory() {
-		if (!chats.length || !confirm($t('chat.clearConfirm'))) return;
+		if (!chats.length || !(await confirmDialog({ message: $t('chat.clearConfirm'), confirmLabel: $t('chat.clearHistory') }))) return;
 		try {
 			await api.del('/api/chats');
 			chats = [];
@@ -140,7 +141,7 @@
 
 	async function removeChat(chat, event) {
 		event?.stopPropagation();
-		if (!confirm($t('chat.deleteConfirm'))) return;
+		if (!(await confirmDialog({ message: $t('chat.deleteConfirm'), confirmLabel: $t('common.delete') }))) return;
 		try {
 			await api.del('/api/chats/' + chat.id);
 			chats = chats.filter((c) => c.id !== chat.id);

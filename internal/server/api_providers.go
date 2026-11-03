@@ -40,10 +40,6 @@ func (s *Server) handleSaveProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "provider id may only contain letters, numbers, dot, dash and underscore")
 		return
 	}
-	if p.Name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
-		return
-	}
 	if p.APIType == "" {
 		p.APIType = "completions"
 	}

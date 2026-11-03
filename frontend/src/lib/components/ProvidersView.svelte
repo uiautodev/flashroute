@@ -25,7 +25,6 @@
 	let proxyTesting = false;
 	let proxyResult = null;
 	let keyFocused = false;
-	let nameTouched = false;
 	let idTouched = false;
 	let autoSyncTimer;
 	let form = blankForm();
@@ -99,7 +98,6 @@
 		modelTab = 'list';
 		proxyResult = null;
 		keyFocused = false;
-		nameTouched = false;
 		idTouched = false;
 		showModal = true;
 	}
@@ -119,7 +117,6 @@
 
 	function applyPreset(preset) {
 		form = { ...form, id: preset.id, name: preset.name, base_url: preset.base_url, api_type: 'completions', enabled: true };
-		nameTouched = true;
 		idTouched = true;
 	}
 
@@ -137,7 +134,6 @@
 		if (editing) return;
 		const host = baseURLHost(form.base_url);
 		if (!host) return;
-		if (!nameTouched) form.name = host;
 		if (!idTouched) form.id = host;
 	}
 
@@ -512,19 +508,6 @@
 				<span class="hint">{$t('providers.apiKeyHint')}</span>
 			</div>
 			<div class="field">
-				<label for="provider-name">{$t('common.name')}<span class="required-mark" aria-hidden="true">*</span></label>
-				<input
-					id="provider-name"
-					class="input"
-					value={form.name}
-					placeholder="DeepSeek"
-					oninput={(event) => {
-						form.name = event.currentTarget.value;
-						nameTouched = true;
-					}}
-				/>
-			</div>
-			<div class="field">
 				<label for="provider-id">{$t('providers.id')}<span class="required-mark" aria-hidden="true">*</span></label>
 				<input
 					id="provider-id"
@@ -538,6 +521,18 @@
 					}}
 				/>
 				<span class="hint">{$t('providers.idHint')}</span>
+			</div>
+			<div class="field">
+				<label for="provider-name">{$t('common.name')} <span class="optional-label">{$t('common.optional')}</span></label>
+				<input
+					id="provider-name"
+					class="input"
+					value={form.name}
+					placeholder={form.id || 'DeepSeek'}
+					oninput={(event) => {
+						form.name = event.currentTarget.value;
+					}}
+				/>
 			</div>
 			<div class="field full">
 				<div class="field-title-row">
@@ -624,7 +619,7 @@
 		</div>
 		<div slot="footer" class="modal-foot">
 			<button class="btn" onclick={() => (showModal = false)}>{$t('common.cancel')}</button>
-			<button class="btn btn-primary" onclick={save} disabled={saving || !form.name || !form.id || !form.base_url}>
+			<button class="btn btn-primary" onclick={save} disabled={saving || !form.id || !form.base_url}>
 				{#if saving}<span class="spinner"></span>{/if}
 				{$t('common.save')}
 			</button>

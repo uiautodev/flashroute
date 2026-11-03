@@ -13,3 +13,7 @@ make desktop
 
 The app is written to `desktop/build/bin/FlashRoute.app`.
 Localhost and desktop sessions never require a password.
+
+Closing the window keeps FlashRoute running in the macOS menu bar. Left-click
+the menu bar icon to show and focus the window; right-click it for **Open
+FlashRoute** and **Quit FlashRoute**.

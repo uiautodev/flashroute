@@ -3,6 +3,7 @@
 	import { api, formatTime } from '#lib/api.js';
 	import { t } from '#lib/i18n.js';
 	import { toast } from '#lib/toast.js';
+	import { confirmDialog } from '#lib/confirm.js';
 	import Icon from './Icon.svelte';
 	import Modal from './Modal.svelte';
 
@@ -97,7 +98,7 @@
 	}
 
 	async function resetDefaults() {
-		if (!confirm($t('security.redactResetConfirm'))) return;
+		if (!(await confirmDialog({ message: $t('security.redactResetConfirm'), confirmLabel: $t('security.redactReset') }))) return;
 		resetting = true;
 		try {
 			const data = await api.post('/api/redact/reset', {});
@@ -130,7 +131,7 @@
 	}
 
 	async function clearRecords() {
-		if (!confirm($t('security.redactClearConfirm'))) return;
+		if (!(await confirmDialog({ message: $t('security.redactClearConfirm'), confirmLabel: $t('security.redactClearRecords') }))) return;
 		try {
 			await api.del('/api/redact/records');
 			records = [];

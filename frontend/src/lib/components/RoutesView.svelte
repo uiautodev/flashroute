@@ -3,6 +3,7 @@
 	import { api } from '#lib/api.js';
 	import { t } from '#lib/i18n.js';
 	import { toast } from '#lib/toast.js';
+	import { confirmDialog } from '#lib/confirm.js';
 	import Icon from './Icon.svelte';
 	import Modal from './Modal.svelte';
 
@@ -138,7 +139,7 @@
 	}
 
 	async function remove(item) {
-		if (!confirm($t('routes.deleteConfirm', { alias: item.route.alias }))) return;
+		if (!(await confirmDialog({ message: $t('routes.deleteConfirm', { alias: item.route.alias }), confirmLabel: $t('common.delete') }))) return;
 		try {
 			await api.del('/api/routes/' + item.route.id);
 			toast($t('common.delete'), 'success');
