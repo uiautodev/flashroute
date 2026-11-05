@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,12 @@ import (
 	"testing"
 	"time"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestCompareVersions(t *testing.T) {
 	cases := []struct {
@@ -451,6 +458,104 @@ func TestCheckWithMirrorManifest(t *testing.T) {
 	wantFallback := defaultDownloadURL + "/v" + version + "/" + asset
 	if info.DownloadURL != mirror.URL+"/proxy/"+wantFallback {
 		t.Fatalf("mirror URL = %q", info.DownloadURL)
+	}
+	if info.FallbackDownloadURL != wantFallback {
+		t.Fatalf("fallback URL = %q", info.FallbackDownloadURL)
+	}
+}
+
+func TestCheckFallsBackToMirrorWhenGitHubFails(t *testing.T) {
+	version := "0.3.4"
+	asset, _ := AssetName("linux", "amd64", version, false)
+	payload := []byte("mirror fallback binary")
+	sum := sha256.Sum256(payload)
+	hash := hex.EncodeToString(sum[:])
+	manifest := Manifest{
+		Version: version, Tag: "v" + version,
+		Assets: []Asset{{Name: asset, Size: int64(len(payload)), SHA256: hash}},
+	}
+	github := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "github down", http.StatusBadGateway)
+	}))
+	defer github.Close()
+	mirror := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/update.json") {
+			_ = json.NewEncoder(w).Encode(manifest)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mirror.Close()
+
+	client := New(Options{
+		ManifestURL: github.URL + "/update.json",
+		LatestURL:   github.URL + "/latest",
+		FeedURL:     github.URL + "/releases.atom",
+		APIURL:      github.URL + "/api",
+		MirrorURL:   mirror.URL + "/proxy/",
+		GOOS:        "linux",
+		GOARCH:      "amd64",
+		HTTPClient:  github.Client(),
+	})
+	info, err := client.Check(context.Background(), "0.3.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFallback := defaultDownloadURL + "/v" + version + "/" + asset
+	if info.Latest != version || info.DownloadURL != mirror.URL+"/proxy/"+wantFallback {
+		t.Fatalf("info = %+v", info)
+	}
+	if info.FallbackDownloadURL != wantFallback {
+		t.Fatalf("fallback URL = %q", info.FallbackDownloadURL)
+	}
+}
+
+func TestCheckFallsBackToMirrorWithoutAPIOverride(t *testing.T) {
+	t.Setenv("FLASHROUTE_UPDATE_API", "")
+	version := "0.3.4"
+	asset, _ := AssetName("linux", "amd64", version, false)
+	payload := []byte("mirror fallback binary")
+	sum := sha256.Sum256(payload)
+	hash := hex.EncodeToString(sum[:])
+	manifest := Manifest{
+		Version: version, Tag: "v" + version,
+		Assets: []Asset{{Name: asset, Size: int64(len(payload)), SHA256: hash}},
+	}
+	github := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "github down", http.StatusBadGateway)
+	}))
+	defer github.Close()
+	mirror := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/update.json") {
+			_ = json.NewEncoder(w).Encode(manifest)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mirror.Close()
+
+	baseTransport := github.Client().Transport
+	client := New(Options{
+		ManifestURL: github.URL + "/update.json",
+		LatestURL:   github.URL + "/latest",
+		FeedURL:     github.URL + "/releases.atom",
+		MirrorURL:   mirror.URL + "/proxy/",
+		GOOS:        "linux",
+		GOARCH:      "amd64",
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.URL.Host == "api.github.com" {
+				return nil, errors.New("github api down")
+			}
+			return baseTransport.RoundTrip(req)
+		})},
+	})
+	info, err := client.Check(context.Background(), "0.3.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFallback := defaultDownloadURL + "/v" + version + "/" + asset
+	if info.Latest != version || info.DownloadURL != mirror.URL+"/proxy/"+wantFallback {
+		t.Fatalf("info = %+v", info)
 	}
 	if info.FallbackDownloadURL != wantFallback {
 		t.Fatalf("fallback URL = %q", info.FallbackDownloadURL)

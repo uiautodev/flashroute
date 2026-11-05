@@ -1,8 +1,8 @@
 # FlashRoute
 
-一个用 Go + SvelteKit 编写的 AI 网关和聊天控制台。聚合 DeepSeek、OpenRouter、BigModel、Anthropic 以及任意 OpenAI 兼容供应商，支持 HTTP/SOCKS 代理、模型别名顺序路由、429 自动回退、请求命中统计、客户端 API Key、可还原的消息脱敏和带图片的多模型聊天。
+一个用 Go + SvelteKit 编写的 AI 网关和聊天控制台。聚合 DeepSeek、OpenRouter、Anthropic 以及任意 OpenAI 兼容供应商，支持 HTTP/SOCKS 代理、模型别名顺序路由、429 自动回退、请求命中统计、客户端 API Key、可还原的消息脱敏和带图片的多模型聊天。
 
-[English](README.md) | 简体中文
+[English](README.md) | 简体中文 | [开发文档（英文）](DEVELOP.md)
 
 **下载地址：** [GitHub Releases](https://github.com/uiautodev/flashroute/releases)
 
@@ -12,7 +12,7 @@
 
 ## 特性
 
-- **多供应商聚合**：DeepSeek、OpenRouter、BigModel、Anthropic 和自定义 OpenAI 兼容接口。
+- **多供应商聚合**：DeepSeek、OpenRouter、Anthropic 和自定义 OpenAI 兼容接口。
 - **独立代理**：每个供应商可配置 `http://`、`https://`、`socks5://` 或 `socks5h://`，并可单独测试代理连通性。
 - **供应商视图与余额**：支持卡片 / 列表视图切换；DeepSeek 和 OpenRouter 可直接查询余额 / 剩余额度。
 - **供应商模型**：从 `/v1/models` 同步候选模型，始终展示全部模型，点击 Chip 选择或取消；使用 `1+1=? Only output the number.` 逐模型测试，连接测试默认测试第一个模型。
@@ -22,7 +22,7 @@
 - **客户端 Key**：自动生成 `sk-fr-` 前缀的 Key，界面默认打码显示，可一键复制完整值。本机请求默认可以不带 Key 访问网关，也可以使用字面 Key `flashroute`；可在「API Key」页关闭免 Key 模式。
 - **信息脱敏**：发送给供应商前按自定义正则替换消息中的敏感信息。命中内容会替换为等长随机字符串，并保留标点、空白和 PEM 标记（例如 `sk-123456` 仍是 `sk-` 开头的同长度字符串，私钥仍保持原有结构），邮箱地址保留 `@` 后面的域名。模型回复中的内容会自动还原；聊天中包含敏感信息的消息会显示「已保护」标记。正则捕获组内的内容会原样保留，其余部分替换为等长掩码；「信息脱敏」页会显示命中次数和最近 30 天的替换记录，支持立即清空。规则和全局开关也在该页。
 - **OpenAI / Anthropic 兼容网关**：`/v1/models`、`/v1/chat/completions`、`/v1/responses`、`/v1/messages`，支持 `stream: true`、工具调用和回退路由。
-- **聊天界面**：流式输出、实时工具调用过程、默认收起的思考过程、思考开关与 low/medium/high 级别（默认 low）、文字 + 图片、Markdown 渲染、一键复制、隐私模式（不落盘）、历史会话删除/清空，以及可开关的联网搜索（默认开启）。
+- **聊天界面**：流式输出、实时工具调用过程、默认收起的思考过程、思考级别：off/low/middle/high（默认 low）、文字 + 图片、Markdown 渲染、一键复制、隐私模式（不落盘）、历史会话删除/清空，以及可开关的联网搜索（默认开启）。
 - **消息版本**：修改用户消息会新增用户消息版本，重新生成 AI 回复会新增回复版本；每条消息独立显示 `当前/总数` 并支持左右切换，版本树存储在 SQLite。
 - **多语言与主题**：中文 / English，暗黑 / 亮色 / 跟随系统。
 - **访问控制**：localhost 和桌面版免密码；远程访问必须设置密码。反向代理场景可加 `-require-auth`。
@@ -46,47 +46,7 @@ FlashRoute 更偏向「单二进制、自带聊天界面、轻量自托管」；
 - [Helicone](https://github.com/Helicone/helicone) — LLM 可观测性与代理，缓存、成本统计和实验能力。
 - [OpenRouter](https://openrouter.ai) — 托管式多模型聚合服务，不是自托管项目。
 
-## 开发与构建
-
-服务端需要 Go 1.27.3+、Node.js 22.17+。桌面模块使用 [Wails v3](https://wails.io/)。
-
-```bash
-# 构建前端 + 单个服务端二进制
-make build
-# 产物：bin/flashroute
-
-./bin/flashroute
-# 打开 http://localhost:8080
-```
-
-开发模式（Vite 热更新 + Go 后端）：
-
-```bash
-make dev
-# 前端：http://localhost:5173
-# 后端：http://127.0.0.1:8080
-# Vite 会把 /api 和 /v1 代理到后端
-```
-
-可自定义端口或数据目录：
-
-```bash
-DEV_BACKEND_PORT=8081 DEV_FRONTEND_PORT=5174 make dev
-FLASHROUTE_DATA_DIR=/tmp/flashroute-dev make dev
-```
-
-前端修改会热更新；修改 Go 代码后会自动重新编译并重启后端，后端日志输出到临时目录的 `flashroute-dev-backend.log`。
-
-安装 pre-commit 钩子：
-
-```bash
-pre-commit install
-pre-commit run --all-files
-```
-
-钩子会检查 `gofmt`，运行 `go vet`、`go test ./...` 并构建前端。
-
-### 服务端模式
+## 运行服务端
 
 ```bash
 ./bin/flashroute \
@@ -107,17 +67,6 @@ pre-commit run --all-files
 ./bin/flashroute -listen 127.0.0.1:9000 -data-dir ./data
 FLASHROUTE_DATA_DIR=/path/to/data ./bin/flashroute
 ```
-
-### 桌面版（Wails）
-
-在 macOS 上构建 universal App：
-
-```bash
-make desktop
-# 产物：desktop/build/bin/FlashRoute.app
-```
-
-桌面版使用 Wails v3，需要 macOS 和 Xcode 命令行工具。桌面壳使用同一套内嵌前端和 Go HTTP handler，桌面会话始终免密码，macOS 上聊天支持流式输出。
 
 ## 数据目录
 
@@ -200,7 +149,7 @@ X-FlashRoute-Attempts
 https://github.com/uiautodev/flashroute/releases/latest/download/update.json
 ```
 
-这是普通 Release 资源下载，不调用 GitHub REST API，因此不会消耗未认证 API 的每小时额度。Manifest 包含版本、更新说明、资产名称、大小和 SHA-256。若 manifest 不存在，会回退到 Release 跳转 / Atom feed，最后才回退到 REST API。
+这是普通 Release 资源下载，不调用 GitHub REST API，因此不会消耗未认证 API 的每小时额度。Manifest 包含版本、更新说明、资产名称、大小和 SHA-256。若 manifest 不存在，会回退到 Release 跳转 / Atom feed，最后才回退到 REST API；GitHub 请求失败时会再回退到 `https://gh-proxy.org/` 镜像。
 
 发现新版本后，FlashRoute 会下载对应产物（服务端二进制或 macOS DMG），使用 manifest 中的 SHA-256 校验，替换当前可执行文件并自动重启；重启后即为新版本。macOS 桌面版还会更新应用包信息并重新进行 ad-hoc 签名。
 
@@ -217,7 +166,7 @@ FLASHROUTE_UPDATE_MANIFEST_URL=https://mirror.example/flashroute/update.json
 FLASHROUTE_UPDATE_BASE_URL=https://mirror.example/flashroute
 ```
 
-`FLASHROUTE_UPDATE_MANIFEST_URL` 指向 manifest，`FLASHROUTE_UPDATE_BASE_URL` 用于 `v<version>/<asset-name>` 下载和兼容旧的 `SHA256SUMS` 校验。中文界面下会优先使用 `https://gh-proxy.org/` 镜像，失败后再回退 GitHub；可通过 `FLASHROUTE_UPDATE_MIRROR` 更换镜像前缀。若使用 GitHub API relay，可设置 `FLASHROUTE_UPDATE_API`，并通过 `FLASHROUTE_UPDATE_TOKEN` 添加 Bearer Token。`FLASHROUTE_UPDATE_LATEST_URL` 和 `FLASHROUTE_UPDATE_FEED` 可覆盖跳转和 Atom 地址。标准 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量同样生效。
+`FLASHROUTE_UPDATE_MANIFEST_URL` 指向 manifest，`FLASHROUTE_UPDATE_BASE_URL` 用于 `v<version>/<asset-name>` 下载和兼容旧的 `SHA256SUMS` 校验。中文界面会优先使用 `https://gh-proxy.org/` 镜像，其他语言优先使用 GitHub；只要 GitHub 检查失败，都会回退到镜像。可通过 `FLASHROUTE_UPDATE_MIRROR` 更换镜像前缀。若使用 GitHub API relay，可设置 `FLASHROUTE_UPDATE_API`，并通过 `FLASHROUTE_UPDATE_TOKEN` 添加 Bearer Token。`FLASHROUTE_UPDATE_LATEST_URL` 和 `FLASHROUTE_UPDATE_FEED` 可覆盖跳转和 Atom 地址。标准 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量同样生效。
 ## 聊天联网搜索
 
 聊天标题栏有「联网搜索」开关，默认开启。开启后模型会获得 `web_search` 和 `web_fetch` 两个 function tool，由模型自行决定何时调用。配置了 DeepSeek 供应商时，工具优先使用 DeepSeek 的 Search / Fetch API；否则回退到 Bing 搜索和直接网页抓取。提示词中同时包含当前时间。开启脱敏时，搜索查询会先脱敏再离开 FlashRoute。可通过 `FLASHROUTE_SEARCH_URL` 为回退搜索指定兼容的 Bing 或 DuckDuckGo HTML 端点或镜像。
@@ -233,39 +182,9 @@ FLASHROUTE_UPDATE_BASE_URL=https://mirror.example/flashroute
 
 已接入的 Agent 会在界面中标记，「取消接入」会移除 FlashRoute 的 provider/环境变量。写入前会在原文件旁边创建备份；只允许对检测到的 Agent 应用配置。
 
-## 项目结构
+## 开发
 
-```text
-cmd/flashroute/        服务端入口
-desktop/               Wails v3 桌面入口（独立 Go module）
-frontend/              SvelteKit 前端，build/ 通过 go:embed 打包
-internal/config/       配置数据结构
-internal/store/        配置、统计、聊天持久化
-internal/gateway/      上游请求、代理、模型测试、回退路由
-internal/server/       HTTP API、鉴权、网关、静态文件
-```
-
-## 测试
-
-```bash
-make test
-# 或先构建前端，再运行 Go 测试
-make frontend
-go test ./...
-```
-
-UI 使用 Playwright 做过实际浏览器测试，覆盖供应商接入、模型同步与测试、代理测试、429 回退、Markdown 聊天、消息编辑与版本切换、图片、隐私模式、API Key 复制、主题、中英文切换及远程密码流程。
-
-## 发布
-
-推送 semver tag 会触发发布流程：
-
-```bash
-git tag v1.2.3
-git push origin v1.2.3
-```
-
-GitHub Actions 会构建前端、交叉编译服务端二进制、生成 macOS universal DMG（`FlashRoute-desktop-mac-<version>.dmg`），连同 `SHA256SUMS` 和 `update.json` manifest 一起上传到 GitHub Release；配置 `NPM_TOKEN` 仓库密钥（npm automation token）后，还会发布同版本的 npm 包，包名为 `flashroute`。二进制版本号使用去掉前导 `v` 的 tag，commit hash 会注入二进制并显示在设置页。
+构建、测试和发布说明见 [DEVELOP.md](DEVELOP.md)（英文）。
 
 ## License
 

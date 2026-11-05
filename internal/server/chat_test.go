@@ -693,9 +693,13 @@ func TestChatReasoningEffort(t *testing.T) {
 	})
 	doAPI(t, h, http.MethodPost, "/api/chat", map[string]any{
 		"model": "mock/chat", "message": "three", "privacy": true, "stream": false,
+		"thinking": true, "thinking_level": "middle",
+	})
+	doAPI(t, h, http.MethodPost, "/api/chat", map[string]any{
+		"model": "mock/chat", "message": "four", "privacy": true, "stream": false,
 		"thinking": true, "thinking_level": "high",
 	})
-	if len(bodies) != 3 {
+	if len(bodies) != 4 {
 		t.Fatalf("upstream bodies = %d", len(bodies))
 	}
 	if !strings.Contains(bodies[0], `"reasoning_effort":"low"`) {
@@ -704,7 +708,10 @@ func TestChatReasoningEffort(t *testing.T) {
 	if strings.Contains(bodies[1], "reasoning_effort") {
 		t.Fatalf("disabled reasoning = %s", bodies[1])
 	}
-	if !strings.Contains(bodies[2], `"reasoning_effort":"high"`) {
-		t.Fatalf("high reasoning = %s", bodies[2])
+	if !strings.Contains(bodies[2], `"reasoning_effort":"medium"`) {
+		t.Fatalf("middle reasoning = %s", bodies[2])
+	}
+	if !strings.Contains(bodies[3], `"reasoning_effort":"high"`) {
+		t.Fatalf("high reasoning = %s", bodies[3])
 	}
 }

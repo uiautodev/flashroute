@@ -1,8 +1,8 @@
 # FlashRoute
 
-A compact AI gateway and chat console built with Go and SvelteKit. It aggregates DeepSeek, OpenRouter, BigModel, Anthropic and any OpenAI-compatible provider, with HTTP/SOCKS proxies, ordered route aliases, automatic 429 fallback, usage stats, client API keys, reversible message redaction and image-capable chat.
+A compact AI gateway and chat console built with Go and SvelteKit. It aggregates DeepSeek, OpenRouter, Anthropic and any OpenAI-compatible provider, with HTTP/SOCKS proxies, ordered route aliases, automatic 429 fallback, usage stats, client API keys, reversible message redaction and image-capable chat.
 
-English | [简体中文](README.zh-CN.md)
+English | [简体中文](README.zh-CN.md) | [Development](DEVELOP.md)
 
 **Download:** [GitHub Releases](https://github.com/uiautodev/flashroute/releases)
 
@@ -12,7 +12,7 @@ English | [简体中文](README.zh-CN.md)
 
 ## Features
 
-- **Multi-provider aggregation**: DeepSeek, OpenRouter, BigModel, Anthropic and custom OpenAI-compatible endpoints.
+- **Multi-provider aggregation**: DeepSeek, OpenRouter, Anthropic and custom OpenAI-compatible endpoints.
 - **Per-provider proxy**: `http://`, `https://`, `socks5://` or `socks5h://`, with an independent proxy connectivity test.
 - **Provider views and balances**: switch between card and list views. DeepSeek and OpenRouter balances / remaining limits can be queried directly.
 - **Provider models**: sync candidates from `/v1/models`, keep every model visible, toggle selection from the model chips, and test individual models with `1+1=? Only output the number.` Connection tests use the first model by default.
@@ -22,7 +22,7 @@ English | [简体中文](README.zh-CN.md)
 - **Client keys**: generated with the `sk-fr-` prefix, masked by default in the UI and copyable with one click. Localhost requests can skip the gateway key by default or use the literal key `flashroute`; toggle the no-key mode on the **API Keys** page.
 - **Message redaction**: regex rules replace secrets in outbound messages before they reach a provider. Matches become same-length random values, keeping punctuation, whitespace and PEM markers, so a key like `sk-123456` still looks like a key, private keys keep their shape and email addresses keep the domain after `@`. Everything is restored in model replies; chat messages with sensitive content get a **Safe** badge. Text inside regex capture groups is preserved and the rest of each match is masked with the same length; hit counts and the last 30 days of replacement records are available on the **Data redaction** page and can be cleared immediately. Rules and the global switch also live there.
 - **OpenAI-compatible gateway**: `/v1/models`, `/v1/chat/completions` and `/v1/responses`, including `stream: true`. Anthropic Messages (`POST /v1/messages`) is also supported, including streaming and tool use.
-- **Chat UI**: streaming output, live tool-call activity, collapsed-by-default reasoning, thinking on/off with low/medium/high levels (default low), text + images, Markdown, one-click copy, privacy mode (never written to disk), conversation history with delete/clear, and optional web search (on by default).
+- **Chat UI**: streaming output, live tool-call activity, collapsed-by-default reasoning, thinking levels: off/low/middle/high (default low), text + images, Markdown, one-click copy, privacy mode (never written to disk), conversation history with delete/clear, and optional web search (on by default).
 - **Per-message versions**: editing a user message adds a user-message version; regenerating an assistant reply adds an assistant-reply version. Each message shows its own `current/total` selector. The version tree is stored in SQLite.
 - **Languages and themes**: Chinese / English, dark / light / follow system.
 - **Access control**: localhost and desktop sessions need no password; remote access must set one. Use `-require-auth` behind a local reverse proxy.
@@ -46,47 +46,7 @@ FlashRoute focuses on a lightweight, single-binary, self-hosted gateway with a b
 - [Helicone](https://github.com/Helicone/helicone) — LLM observability and proxy with caching, cost analytics and experiments.
 - [OpenRouter](https://openrouter.ai) — hosted multi-model aggregation service, not a self-hosted project.
 
-## Development
-
-The server requires Go 1.27.3+ and Node.js 22.17+. The optional desktop module uses [Wails v3](https://wails.io/).
-
-```bash
-# Build the frontend and the single server binary
-make build
-# Output: bin/flashroute
-
-./bin/flashroute
-# Open http://localhost:8080
-```
-
-Development mode (Vite HMR + Go backend):
-
-```bash
-make dev
-# Frontend: http://localhost:5173
-# Backend:  http://127.0.0.1:8080
-# Vite proxies /api and /v1 to the backend
-```
-
-Custom ports or data directory:
-
-```bash
-DEV_BACKEND_PORT=8081 DEV_FRONTEND_PORT=5174 make dev
-FLASHROUTE_DATA_DIR=/tmp/flashroute-dev make dev
-```
-
-Frontend edits hot-reload. Go edits trigger an automatic rebuild and backend restart; the backend log is written to `flashroute-dev-backend.log` in the temporary directory.
-
-Install the pre-commit hook once:
-
-```bash
-pre-commit install
-pre-commit run --all-files
-```
-
-The hook checks `gofmt`, runs `go vet`, `go test ./...` and builds the frontend.
-
-### Server mode
+## Running the server
 
 ```bash
 ./bin/flashroute \
@@ -107,16 +67,6 @@ Other flags:
 ./bin/flashroute -listen 127.0.0.1:9000 -data-dir ./data
 FLASHROUTE_DATA_DIR=/path/to/data ./bin/flashroute
 ```
-
-### Desktop (Wails)
-
-```bash
-make frontend
-make desktop
-# Output: desktop/build/bin/flashroute.app
-```
-
-`make desktop` runs `wails build`. Wails embeds the same frontend and Go HTTP handler; desktop sessions are always password-free.
 
 ## Data directory
 
@@ -199,7 +149,7 @@ Open **Settings → Software update** and click **Check for updates**. By defaul
 https://github.com/uiautodev/flashroute/releases/latest/download/update.json
 ```
 
-This is a normal Release asset download, not a GitHub REST API request, so it does not consume the unauthenticated API rate limit. The manifest contains the version, release notes, asset names, sizes and SHA-256 hashes. If the manifest is missing, FlashRoute falls back to the release redirect / Atom feed and finally the REST API.
+This is a normal Release asset download, not a GitHub REST API request, so it does not consume the unauthenticated API rate limit. The manifest contains the version, release notes, asset names, sizes and SHA-256 hashes. If the manifest is missing, FlashRoute falls back to the release redirect / Atom feed and finally the REST API. If GitHub cannot be reached, the check falls back to the `https://gh-proxy.org/` mirror.
 
 When a newer release exists, FlashRoute downloads the matching asset (server binary or macOS DMG), verifies it against the manifest SHA-256, replaces the running executable and restarts automatically. The restarted process serves the new version; macOS desktop builds also update the bundle metadata and re-sign the app ad hoc.
 
@@ -216,7 +166,7 @@ FLASHROUTE_UPDATE_MANIFEST_URL=https://mirror.example/flashroute/update.json
 FLASHROUTE_UPDATE_BASE_URL=https://mirror.example/flashroute
 ```
 
-`FLASHROUTE_UPDATE_MANIFEST_URL` points to the manifest, and `FLASHROUTE_UPDATE_BASE_URL` is used for `v<version>/<asset-name>` downloads and the legacy `SHA256SUMS` fallback. When the UI language is Chinese, updates try the `https://gh-proxy.org/` mirror first and fall back to GitHub; set `FLASHROUTE_UPDATE_MIRROR` to use a different mirror prefix. For a GitHub API relay, set `FLASHROUTE_UPDATE_API`; `FLASHROUTE_UPDATE_TOKEN` adds a bearer token. `FLASHROUTE_UPDATE_LATEST_URL` and `FLASHROUTE_UPDATE_FEED` can override the redirect and Atom endpoints. Standard `HTTP_PROXY` / `HTTPS_PROXY` environment variables are respected.
+`FLASHROUTE_UPDATE_MANIFEST_URL` points to the manifest, and `FLASHROUTE_UPDATE_BASE_URL` is used for `v<version>/<asset-name>` downloads and the legacy `SHA256SUMS` fallback. The Chinese UI tries the `https://gh-proxy.org/` mirror first, while other languages try GitHub first. If the GitHub check fails, every language falls back to the mirror; set `FLASHROUTE_UPDATE_MIRROR` to use a different mirror prefix. For a GitHub API relay, set `FLASHROUTE_UPDATE_API`; `FLASHROUTE_UPDATE_TOKEN` adds a bearer token. `FLASHROUTE_UPDATE_LATEST_URL` and `FLASHROUTE_UPDATE_FEED` can override the redirect and Atom endpoints. Standard `HTTP_PROXY` / `HTTPS_PROXY` environment variables are respected.
 ## Chat web search
 
 The chat header has a **Web search** switch, on by default. When enabled, the model gets `web_search` and `web_fetch` function tools and decides when to call them. If a DeepSeek provider is configured, the tools use the DeepSeek Search / Fetch APIs; otherwise FlashRoute falls back to Bing search and direct page fetching. The current date and time are included in the tool prompt. When redaction is enabled, queries are redacted before they leave FlashRoute. Set `FLASHROUTE_SEARCH_URL` to use a compatible Bing or DuckDuckGo HTML endpoint or mirror for the fallback search.
@@ -232,39 +182,9 @@ Open the **Agents** page to detect locally installed coding agents. Choose a mod
 
 Connected agents are marked in the UI, and **Disconnect** removes the FlashRoute provider/environment again. Existing configs are backed up next to the original file before writing. Only detected agents can be applied.
 
-## Project layout
+## Development
 
-```text
-cmd/flashroute/        server entry point
-desktop/               optional Wails v3 desktop entry (separate Go module)
-frontend/              SvelteKit frontend; build/ is embedded with go:embed
-internal/config/       config data structures
-internal/store/        config, stats and chat persistence
-internal/gateway/      upstream requests, proxies, model tests, fallback routing
-internal/server/       HTTP API, auth, gateway and static files
-```
-
-## Testing
-
-```bash
-make test
-# or build the frontend first, then run Go tests
-make frontend
-go test ./...
-```
-
-The UI is tested in a real browser with Playwright, covering provider setup, model sync and tests, proxy tests, 429 fallback, Markdown chat, message editing and version switching, images, privacy mode, API key copying, themes, language switching and remote-password flows.
-
-## Release
-
-Push a semver tag to trigger the release workflow:
-
-```bash
-git tag v1.2.3
-git push origin v1.2.3
-```
-
-GitHub Actions builds the frontend, cross-compiles the server binaries, builds a universal macOS DMG (`FlashRoute-desktop-mac-<version>.dmg`), uploads everything with a `SHA256SUMS` file and an `update.json` manifest to the GitHub Release, and publishes the matching npm package when the `NPM_TOKEN` repository secret (an npm automation token) is configured. The package is published as `flashroute`. Binary versions use the tag without the leading `v`, and the commit hash is embedded into the binary and shown on the Settings page.
+Build, test and release instructions live in [DEVELOP.md](DEVELOP.md).
 
 ## License
 

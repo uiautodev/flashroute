@@ -375,6 +375,8 @@ func thinkingLevel(level string) string {
 	switch strings.ToLower(strings.TrimSpace(level)) {
 	case "minimal", "medium", "high":
 		return strings.ToLower(strings.TrimSpace(level))
+	case "middle":
+		return "medium"
 	default:
 		return "low"
 	}

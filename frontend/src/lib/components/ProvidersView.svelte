@@ -9,10 +9,11 @@
 	import Modal from './Modal.svelte';
 
 	const presets = [
-		{ id: 'ds', name: 'DeepSeek', base_url: 'https://api.deepseek.com/v1' },
-		{ id: 'openrouter', name: 'OpenRouter', base_url: 'https://openrouter.ai/api/v1' },
-		{ id: 'bigmodel', name: 'BigModel', base_url: 'https://open.bigmodel.cn/api/paas/v4' }
+		{ kind: 'deepseek', id: 'ds', name: 'DeepSeek', base_url: 'https://api.deepseek.com/v1' },
+		{ kind: 'openrouter', id: 'openrouter', name: 'OpenRouter', base_url: 'https://openrouter.ai/api/v1' },
+		{ kind: 'custom', id: '', name: '', base_url: '' }
 	];
+	const quickPresets = presets.filter((preset) => preset.kind !== 'custom');
 
 	let providers = [];
 	let loading = true;
@@ -32,6 +33,8 @@
 	let availableModels = [];
 	let viewMode = 'list';
 	let modelTab = 'list';
+	let modelFilter = '';
+	let providerKind = 'custom';
 
 	function blankForm() {
 		return { id: '', name: '', base_url: '', api_type: 'completions', api_key: '', proxy: '', enabled: true, models: [] };
@@ -92,8 +95,10 @@
 
 	function openAdd() {
 		editing = false;
+		providerKind = 'custom';
 		form = blankForm();
 		modelText = '';
+		modelFilter = '';
 		availableModels = [];
 		modelTab = 'list';
 		proxyResult = null;
@@ -106,6 +111,7 @@
 		editing = true;
 		form = { ...provider, api_type: provider.api_type || 'completions', models: provider.models || [] };
 		modelText = (provider.models || []).map((m) => m.id).join('\n');
+		modelFilter = '';
 		availableModels = [...(provider.models || [])];
 		const models = provider.models || [];
 		const selected = new Set(models.map((model) => model.id));
@@ -116,8 +122,17 @@
 	}
 
 	function applyPreset(preset) {
-		form = { ...form, id: preset.id, name: preset.name, base_url: preset.base_url, api_type: 'completions', enabled: true };
-		idTouched = true;
+		if (providerKind !== preset.kind && preset.kind !== 'custom') {
+			modelText = '';
+			modelFilter = '';
+			availableModels = [];
+			modelTab = 'list';
+		}
+		providerKind = preset.kind;
+		if (preset.kind !== 'custom') {
+			form = { ...form, id: preset.id, name: preset.name, base_url: preset.base_url, api_type: 'completions', enabled: true };
+		}
+		idTouched = preset.kind !== 'custom';
 	}
 
 	function baseURLHost(value) {
@@ -237,19 +252,43 @@
 		return out;
 	}
 
+	function updateModelTab(count) {
+		if (count === modelCatalog.length) modelTab = 'list';
+		else if (count === 0) modelTab = 'usage';
+		else modelTab = 'selected';
+	}
+
 	function toggleModel(model) {
 		const ids = new Set(selectedIDs);
 		if (ids.has(model.id)) ids.delete(model.id);
 		else ids.add(model.id);
 		modelText = [...ids].join('\n');
-		if (ids.size === modelCatalog.length) modelTab = 'list';
-		else if (ids.size === 0) modelTab = 'usage';
-		else modelTab = 'selected';
+		updateModelTab(ids.size);
 	}
 
 	function selectAllModels() {
 		modelText = modelCatalog.map((model) => model.id).join('\n');
 		modelTab = 'list';
+	}
+
+	function selectFilteredModels() {
+		const ids = [...selectedIDs];
+		const selected = new Set(ids);
+		for (const model of filteredModelCatalog) {
+			if (!selected.has(model.id)) {
+				selected.add(model.id);
+				ids.push(model.id);
+			}
+		}
+		modelText = ids.join('\n');
+		updateModelTab(ids.length);
+	}
+
+	function deselectFilteredModels() {
+		const removed = new Set(filteredModelCatalog.map((model) => model.id));
+		const ids = selectedIDs.filter((id) => !removed.has(id));
+		modelText = ids.join('\n');
+		updateModelTab(ids.length);
 	}
 
 	function selectTab(tab) {
@@ -285,6 +324,13 @@
 	$: selectedModels = parseModels(modelText);
 	$: selectedIDs = selectedModels.map((model) => model.id);
 	$: modelCatalog = buildModelCatalog(availableModels, selectedModels);
+	$: modelQuery = modelFilter.trim().toLowerCase();
+	$: filteredModelCatalog = modelQuery
+		? modelCatalog.filter((model) => `${model.id} ${model.name || ''}`.toLowerCase().includes(modelQuery))
+		: modelCatalog;
+	$: filteredSelectedCount = filteredModelCatalog.filter((model) => selectedIDs.includes(model.id)).length;
+	$: showModelTools = modelCatalog.length > 0 && (selectedIDs.length !== modelCatalog.length || modelFilter.trim() !== '');
+	$: fixedEndpoint = !editing && providerKind !== 'custom';
 	$: apiEndpoint = form.base_url
 		? form.base_url.replace(/\/+$/, '') +
 			(form.api_type === 'responses' ? '/responses' : form.api_type === 'anthropic' ? '/messages' : '/chat/completions')
@@ -325,14 +371,12 @@
 		<h2 class="empty-title">{$t('providers.emptyTitle')}</h2>
 		<p class="empty-text">{$t('providers.emptyBody')}</p>
 		<div class="preset-row">
-			{#each presets as preset}
+			{#each quickPresets as preset}
 				<button
 					class="btn"
 					onclick={() => {
-						form = blankForm();
+						openAdd();
 						applyPreset(preset);
-						editing = false;
-						showModal = true;
 					}}>{$t('providers.add')} {preset.name}</button
 				>
 			{/each}
@@ -453,43 +497,63 @@
 {#if showModal}
 	<Modal title={editing ? $t('providers.edit') : $t('providers.add')} onClose={() => (showModal = false)}>
 		{#if !editing}
-			<div class="preset-row">
-				{#each presets as preset}
-					<button class="btn btn-sm" onclick={() => applyPreset(preset)}>{preset.name}</button>
-				{/each}
+			<div class="provider-kind-block">
+				<span class="field-label">{$t('providers.providerType')}</span>
+				<div class="provider-kind-row" role="group" aria-label={$t('providers.providerType')}>
+					{#each presets as preset}
+						<button
+							class="provider-kind-choice"
+							class:active={providerKind === preset.kind}
+							onclick={() => applyPreset(preset)}
+							aria-pressed={providerKind === preset.kind}
+						>
+							<span class="provider-kind-name">{preset.name || $t('providers.custom')}</span>
+							<span class="provider-kind-meta">
+								{preset.kind === 'custom' ? $t('providers.customHint') : preset.base_url.replace(/^https?:\/\//, '')}
+							</span>
+						</button>
+					{/each}
+				</div>
 			</div>
 		{/if}
 		<div class="form-grid">
-			<div class="field full">
-				<label for="provider-base">{$t('providers.baseUrl')}<span class="required-mark" aria-hidden="true">*</span></label>
-				<div class="input-group">
-					<input
-						id="provider-base"
-						class="input mono"
-						value={form.base_url}
-						placeholder="https://api.deepseek.com/v1"
-						oninput={(event) => {
-							form.base_url = event.currentTarget.value;
-							fillIdentityFromBaseURL();
-						}}
-					/>
-					<select
-						id="provider-api-type"
-						class="select api-type-select"
-						bind:value={form.api_type}
-						title={$t('providers.apiType')}
-						aria-label={$t('providers.apiType')}
-					>
-						<option value="completions">{$t('providers.apiTypeCompletionsShort')}</option>
-						<option value="responses">{$t('providers.apiTypeResponsesShort')}</option>
-						<option value="anthropic">{$t('providers.apiTypeAnthropicShort')}</option>
-					</select>
+			{#if !fixedEndpoint}
+				<div class="field full">
+					<label for="provider-base">{$t('providers.baseUrl')}<span class="required-mark" aria-hidden="true">*</span></label>
+					<div class="input-group">
+						<input
+							id="provider-base"
+							class="input mono"
+							value={form.base_url}
+							placeholder="https://api.example.com/v1"
+							oninput={(event) => {
+								form.base_url = event.currentTarget.value;
+								fillIdentityFromBaseURL();
+							}}
+						/>
+						<select
+							id="provider-api-type"
+							class="select api-type-select"
+							bind:value={form.api_type}
+							title={$t('providers.apiType')}
+							aria-label={$t('providers.apiType')}
+						>
+							<option value="completions">{$t('providers.apiTypeCompletionsShort')}</option>
+							<option value="responses">{$t('providers.apiTypeResponsesShort')}</option>
+							<option value="anthropic">{$t('providers.apiTypeAnthropicShort')}</option>
+						</select>
+					</div>
+					<span class="hint endpoint-hint">
+						{$t('providers.apiEndpoint')}
+						<code class="mono">{apiEndpoint || '—'}</code>
+					</span>
 				</div>
-				<span class="hint endpoint-hint">
-					{$t('providers.apiEndpoint')}
-					<code class="mono">{apiEndpoint || '—'}</code>
-				</span>
-			</div>
+			{:else}
+				<div class="field full">
+					<span class="field-label">{$t('providers.apiEndpoint')}</span>
+					<code class="fixed-endpoint mono">{apiEndpoint || '—'}</code>
+				</div>
+			{/if}
 			<div class="field full">
 				<label for="provider-key">{$t('providers.apiKey')}</label>
 				<div class="input-group">
@@ -514,7 +578,7 @@
 					class="input mono"
 					value={form.id}
 					disabled={editing}
-					placeholder="ds"
+					placeholder="custom"
 					oninput={(event) => {
 						form.id = event.currentTarget.value;
 						idTouched = true;
@@ -528,7 +592,7 @@
 					id="provider-name"
 					class="input"
 					value={form.name}
-					placeholder={form.id || 'DeepSeek'}
+					placeholder={form.id || $t('providers.custom')}
 					oninput={(event) => {
 						form.name = event.currentTarget.value;
 					}}
@@ -589,8 +653,24 @@
 						</button>
 					</div>
 				</div>
+				{#if showModelTools}
+					<div class="model-tools">
+						<input
+							class="input model-search"
+							bind:value={modelFilter}
+							placeholder={$t('providers.modelSearch')}
+							aria-label={$t('providers.modelSearch')}
+						/>
+						<button class="btn btn-sm" onclick={selectFilteredModels} disabled={filteredModelCatalog.length === 0}>
+							{$t('providers.selectAll')}
+						</button>
+						<button class="btn btn-sm" onclick={deselectFilteredModels} disabled={filteredSelectedCount === 0}>
+							{$t('providers.deselectAll')}
+						</button>
+					</div>
+				{/if}
 				<div class="model-chips">
-					{#each modelCatalog as model (model.id)}
+					{#each filteredModelCatalog as model (model.id)}
 						<button
 							class="model-pick"
 							class:active={selectedIDs.includes(model.id)}
@@ -605,7 +685,7 @@
 							<span class="model-dot {modelStatus(model)}"></span>
 						</button>
 					{:else}
-						<span class="hint">{$t('providers.modelsNoCandidates')}</span>
+						<span class="hint">{modelQuery ? $t('providers.noModelMatches') : $t('providers.modelsNoCandidates')}</span>
 					{/each}
 				</div>
 				<span class="hint">{$t('providers.modelsHint')}</span>
@@ -808,6 +888,60 @@
 		gap: 7px;
 		flex-wrap: wrap;
 	}
+	.provider-kind-block {
+		display: flex;
+		flex-direction: column;
+		gap: 7px;
+		margin-bottom: 15px;
+	}
+	.provider-kind-row {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 7px;
+	}
+	.provider-kind-choice {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		padding: 9px 11px;
+		border: 1px solid var(--line-soft);
+		border-radius: 9px;
+		background: var(--surface-inset);
+		color: var(--text-soft);
+		text-align: left;
+		cursor: pointer;
+	}
+	.provider-kind-choice:hover {
+		border-color: var(--accent-border);
+	}
+	.provider-kind-choice.active {
+		border-color: var(--accent);
+		background: var(--accent-soft);
+		color: var(--accent);
+	}
+	.provider-kind-name {
+		font-size: 12px;
+		font-weight: 650;
+	}
+	.provider-kind-meta {
+		font-size: 9.5px;
+		color: var(--muted);
+		overflow-wrap: anywhere;
+	}
+	.provider-kind-choice.active .provider-kind-meta {
+		color: var(--accent);
+		opacity: 0.75;
+	}
+	.fixed-endpoint {
+		display: block;
+		padding: 7px 9px;
+		border: 1px solid var(--line-soft);
+		border-radius: 7px;
+		background: var(--surface-code);
+		color: var(--text-soft);
+		font-size: 10.5px;
+		overflow-wrap: anywhere;
+	}
 	.field-title-row {
 		display: flex;
 		align-items: center;
@@ -894,6 +1028,18 @@
 		color: var(--text);
 		font-weight: 650;
 	}
+	.model-tools {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-wrap: wrap;
+		margin-bottom: 8px;
+	}
+	.model-search {
+		flex: 1;
+		min-width: 180px;
+		font-size: 11px;
+	}
 	.model-chips {
 		display: flex;
 		flex-wrap: wrap;
@@ -954,7 +1100,8 @@
 		background: var(--danger);
 	}
 	@media (max-width: 720px) {
-	.provider-grid {
+		.provider-grid,
+		.provider-kind-row {
 			grid-template-columns: 1fr;
 		}
 	}

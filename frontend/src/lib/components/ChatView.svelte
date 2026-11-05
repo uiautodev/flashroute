@@ -22,9 +22,11 @@
 	let model = '';
 	let privacy = false;
 	let webSearch = typeof localStorage !== 'undefined' ? localStorage.getItem('flashroute.webSearch') !== 'false' : true;
-	let thinking = typeof localStorage !== 'undefined' ? localStorage.getItem('flashroute.thinking') !== 'false' : true;
 	let thinkingLevel = typeof localStorage !== 'undefined' ? localStorage.getItem('flashroute.thinkingLevel') || 'low' : 'low';
-	if (!['low', 'medium', 'high'].includes(thinkingLevel)) thinkingLevel = 'low';
+	if (thinkingLevel === 'medium') thinkingLevel = 'middle';
+	if (typeof localStorage !== 'undefined' && localStorage.getItem('flashroute.thinking') === 'false') thinkingLevel = 'off';
+	if (!['off', 'low', 'middle', 'high'].includes(thinkingLevel)) thinkingLevel = 'low';
+	if (typeof localStorage !== 'undefined') localStorage.removeItem('flashroute.thinking');
 	let text = '';
 	let attachments = [];
 	let sending = false;
@@ -54,6 +56,8 @@
 	$: direct = available.direct || [];
 	$: hasModels = routes.length > 0 || direct.length > 0;
 	$: canSend = model && (text.trim() || attachments.length > 0) && !editingID;
+	$: thinkingEnabled = thinkingLevel !== 'off';
+	$: thinkingRequestLevel = thinkingLevel === 'middle' ? 'medium' : thinkingLevel;
 	$: if (newChatRequest?.id && newChatRequest.id !== lastNewChatRequest) {
 		lastNewChatRequest = newChatRequest.id;
 		newChat(newChatRequest.private);
@@ -252,8 +256,8 @@
 					images: outgoingImages,
 					privacy,
 					web_search: webSearch,
-					thinking,
-					thinking_level: thinkingLevel,
+					thinking: thinkingEnabled,
+					thinking_level: thinkingRequestLevel,
 					stream: true,
 					history
 				},
@@ -326,8 +330,8 @@
 					images: [],
 					privacy,
 					web_search: webSearch,
-					thinking,
-					thinking_level: thinkingLevel,
+					thinking: thinkingEnabled,
+					thinking_level: thinkingRequestLevel,
 					stream: true,
 					edit_message_id: message.id,
 					history
@@ -379,8 +383,8 @@
 					chat_id: current.id,
 					model,
 					web_search: webSearch,
-					thinking,
-					thinking_level: thinkingLevel,
+					thinking: thinkingEnabled,
+					thinking_level: thinkingRequestLevel,
 					regenerate_message_id: message.id,
 					privacy: false,
 					stream: true,
@@ -617,13 +621,9 @@
 		localStorage.setItem('flashroute.webSearch', String(webSearch));
 	}
 
-	function toggleThinking() {
-		thinking = !thinking;
-		localStorage.setItem('flashroute.thinking', String(thinking));
-	}
-
 	function changeThinkingLevel() {
 		localStorage.setItem('flashroute.thinkingLevel', thinkingLevel);
+		localStorage.removeItem('flashroute.thinking');
 	}
 
 	function closeHistory() {
@@ -761,41 +761,31 @@
 				</div>
 			</div>
 			<div class="chat-head-right">
-				<div class="websearch-control">
-					<Icon name="globe" size={15} />
-					<span>{$t('chat.webSearch')}</span>
-					<button
-						class="switch small"
-						class:on={webSearch}
-						onclick={toggleWebSearch}
-						aria-label={$t('chat.webSearch')}
-						aria-pressed={webSearch}
-						title={$t('chat.webSearchHint')}
-					></button>
-				</div>
+				<button
+					class="btn btn-ghost btn-icon websearch-toggle"
+					class:on={webSearch}
+					onclick={toggleWebSearch}
+					aria-label={$t('chat.webSearch')}
+					aria-pressed={webSearch}
+					title={$t('chat.webSearchHint')}
+				>
+					<Icon name="globe" size={16} />
+				</button>
 				<div class="thinking-control">
 					<Icon name="spark" size={15} />
 					<span>{$t('chat.thinking')}</span>
-					<button
-						class="switch small"
-						class:on={thinking}
-						onclick={toggleThinking}
-						aria-label={$t('chat.thinking')}
-						aria-pressed={thinking}
-					></button>
-					{#if thinking}
-						<select
-							class="select thinking-level"
-							bind:value={thinkingLevel}
-							onchange={changeThinkingLevel}
-							aria-label={$t('chat.thinkingLevel')}
-							title={$t('chat.thinkingLevel')}
-						>
-							<option value="low">{$t('chat.thinkingLow')}</option>
-							<option value="medium">{$t('chat.thinkingMedium')}</option>
-							<option value="high">{$t('chat.thinkingHigh')}</option>
-						</select>
-					{/if}
+					<select
+						class="select thinking-level"
+						bind:value={thinkingLevel}
+						onchange={changeThinkingLevel}
+						aria-label={$t('chat.thinkingLevel')}
+						title={$t('chat.thinkingLevel')}
+					>
+						<option value="off">{$t('chat.thinkingOff')}</option>
+						<option value="low">{$t('chat.thinkingLow')}</option>
+						<option value="middle">{$t('chat.thinkingMiddle')}</option>
+						<option value="high">{$t('chat.thinkingHigh')}</option>
+					</select>
 				</div>
 				<div class="privacy-control">
 					<Icon name="shield" size={15} />
@@ -1281,13 +1271,20 @@
 		justify-content: flex-end;
 	}
 	.privacy-control,
-	.websearch-control,
 	.thinking-control {
 		display: flex;
 		align-items: center;
 		gap: 7px;
 		font-size: 11.5px;
 		color: var(--muted);
+	}
+	.websearch-toggle {
+		color: var(--muted);
+	}
+	.websearch-toggle.on {
+		color: var(--accent);
+		background: var(--accent-soft);
+		border-color: var(--accent-border-soft);
 	}
 	.thinking-level {
 		width: auto;

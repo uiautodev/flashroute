@@ -202,7 +202,7 @@ func (c *Client) Check(ctx context.Context, current string) (Info, error) {
 }
 
 func (c *Client) CheckWithMirror(ctx context.Context, current string, useMirror bool) (Info, error) {
-	release, err := c.latestWithMirror(ctx, useMirror)
+	release, checkedViaMirror, err := c.latestWithMirror(ctx, useMirror)
 	if err != nil {
 		return Info{}, err
 	}
@@ -226,8 +226,8 @@ func (c *Client) CheckWithMirror(ctx context.Context, current string, useMirror 
 		return info, err
 	}
 	info.Asset = asset
-	info.DownloadURL, info.FallbackDownloadURL = c.assetURLs(release, asset, useMirror)
-	info.ChecksumURL, info.FallbackChecksumURL = c.assetURLs(release, checksumAsset, useMirror)
+	info.DownloadURL, info.FallbackDownloadURL = c.assetURLs(release, asset, useMirror || checkedViaMirror)
+	info.ChecksumURL, info.FallbackChecksumURL = c.assetURLs(release, checksumAsset, useMirror || checkedViaMirror)
 	if info.DownloadURL == "" {
 		return info, fmt.Errorf("release v%s does not include %s", latest, asset)
 	}
@@ -309,25 +309,49 @@ func (c *Client) Restart() error {
 }
 
 func (c *Client) latest(ctx context.Context) (Release, error) {
-	return c.latestWithMirror(ctx, false)
+	release, _, err := c.latestWithMirror(ctx, false)
+	return release, err
 }
 
-func (c *Client) latestWithMirror(ctx context.Context, useMirror bool) (Release, error) {
-	if c.apiURL != "" {
-		return c.latestAPI(ctx, c.apiURL)
+func (c *Client) latestWithMirror(ctx context.Context, useMirror bool) (Release, bool, error) {
+	mirrorErr := error(nil)
+	mirrorTried := false
+	readMirror := func() (Release, error) {
+		mirrorTried = true
+		mirror := c.mirroredURL(c.manifestURL)
+		if mirror == "" {
+			return Release{}, errors.New("update mirror is not configured")
+		}
+		return c.latestManifest(ctx, mirror)
 	}
-	manifestErr := error(nil)
+	if c.apiURL != "" {
+		release, apiErr := c.latestAPI(ctx, c.apiURL)
+		if apiErr == nil {
+			return release, false, nil
+		}
+		if release, err := readMirror(); err == nil {
+			return release, true, nil
+		} else {
+			mirrorErr = err
+		}
+		parts := []string{apiErr.Error()}
+		if mirrorErr != nil {
+			parts = append(parts, mirrorErr.Error())
+		}
+		return Release{}, false, fmt.Errorf("check for updates: %s", strings.Join(parts, "; "))
+	}
 	if useMirror && c.mirrorURL != "" {
-		if mirror := c.mirroredURL(c.manifestURL); mirror != "" {
-			if release, err := c.latestManifest(ctx, mirror); err == nil {
-				return release, nil
-			}
+		if release, err := readMirror(); err == nil {
+			return release, true, nil
+		} else {
+			mirrorErr = err
 		}
 	}
+	manifestErr := error(nil)
 	if c.manifestURL != "" {
 		release, err := c.latestManifest(ctx, c.manifestURL)
 		if err == nil {
-			return release, nil
+			return release, false, nil
 		}
 		manifestErr = err
 	}
@@ -340,17 +364,27 @@ func (c *Client) latestWithMirror(ctx context.Context, useMirror bool) (Release,
 				release.HTMLURL = entry.HTMLURL
 			}
 		}
-		return release, nil
+		return release, false, nil
 	}
 	apiRelease, apiErr := c.latestAPI(ctx, defaultAPIURL)
 	if apiErr == nil {
-		return apiRelease, nil
+		return apiRelease, false, nil
+	}
+	if !mirrorTried {
+		if release, err := readMirror(); err == nil {
+			return release, true, nil
+		} else {
+			mirrorErr = err
+		}
 	}
 	parts := []string{redirectErr.Error(), apiErr.Error()}
 	if manifestErr != nil {
 		parts = append([]string{manifestErr.Error()}, parts...)
 	}
-	return Release{}, fmt.Errorf("check for updates: %s", strings.Join(parts, "; "))
+	if mirrorErr != nil {
+		parts = append(parts, mirrorErr.Error())
+	}
+	return Release{}, false, fmt.Errorf("check for updates: %s", strings.Join(parts, "; "))
 }
 
 func (c *Client) latestManifest(ctx context.Context, manifestURL string) (Release, error) {
