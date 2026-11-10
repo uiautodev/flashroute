@@ -91,9 +91,15 @@ func main() {
 		}
 		window.Hide()
 		event.Cancel()
+		// With no window left the app is a pure menu bar app, so it leaves the
+		// Dock and the Cmd+Tab switcher.
+		setDockActivationPolicy(false)
 	})
 
 	showWindow := func() {
+		// A visible window makes the app regular, which gives it a Dock icon
+		// and a Cmd+Tab entry so switching back always lands on the window.
+		setDockActivationPolicy(true)
 		window.Show()
 		window.Restore()
 		window.Focus()
@@ -201,11 +207,32 @@ func main() {
 		app.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(*application.ApplicationEvent) {
 			showWindow()
 		})
+		// Clicking the Dock icon, Cmd+Tabbing back to the app or activating it
+		// any other way must always surface the window, even when it was
+		// hidden or minimised.
+		app.Event.OnApplicationEvent(events.Mac.ApplicationDidBecomeActive, func(*application.ApplicationEvent) {
+			if quitting.Load() {
+				return
+			}
+			if revealOnActivate(window.IsVisible(), window.IsMinimised()) {
+				showWindow()
+				return
+			}
+			// The window is already up, so keep the app regular even if the
+			// launch-time accessory policy was applied after it was shown.
+			setDockActivationPolicy(true)
+		})
 	}
 
 	if err := app.Run(); err != nil {
 		log.Fatalf("run desktop app: %v", err)
 	}
+}
+
+// revealOnActivate reports whether activating the app should surface the main
+// window instead of leaving it in the menu bar.
+func revealOnActivate(visible, minimised bool) bool {
+	return !visible || minimised
 }
 
 func listenDesktop(port int) (net.Listener, error) {
